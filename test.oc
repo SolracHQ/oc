@@ -1,0 +1,23 @@
+#[external(header="<stdio.h>", name="printf")]
+fun printf(format: CString, _: CVarArgs): Int32
+
+#[entrypoint]
+pub fun main(): Int {
+
+  fun printInt(i: Int32) {
+    // Print an integer using printf
+    printf(c"%d\n", i)
+  }
+
+  // test mat
+  let a: Int32 = 5
+  let b = 8 + a
+
+  printInt(a)
+
+  return 0
+}
+
+{
+  var a = 0
+}
