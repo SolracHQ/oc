@@ -8,8 +8,8 @@ type SymbolMapper* = ref object
   hasError*: bool
 
 proc symbolMapperError*(symbolMapper: SymbolMapper, position: Position, msg: string) =
-  ## Prints an error message for the symbol mapper
-  logError("SymbolMapper", msg, position, symbolMapper.fileInfo.content)
+  ## Logs an error during symbol mapping
+  logError("SymbolMapper", msg, position)
   symbolMapper.hasError = true
 
 proc newSymbolMapper*(fileInfo: FileInfo, scope: Scope): SymbolMapper =
@@ -31,11 +31,9 @@ proc initializeTable*(symbolMapper: SymbolMapper, scope: Scope, node: Node) =
     let varDecl = node.varDeclNode
     let varSymbol = Symbol(
       name: varDecl.identifier,
-      pos: node.pos,
-      isPublic: varDecl.isPublic,
+      node: node,
       kind: Variable,
       varType: varDecl.typeAnnotation,
-      isReadOnly: false,
       isGlobal: scope.kind == ModuleScope,
       isInitialized: varDecl.initializer.isSome,
     )
@@ -54,11 +52,9 @@ proc initializeTable*(symbolMapper: SymbolMapper, scope: Scope, node: Node) =
     let letDecl = node.letDeclNode
     let letSymbol = Symbol(
       name: letDecl.identifier,
-      pos: node.pos,
-      isPublic: letDecl.isPublic,
+      node: node,
       kind: Variable,
       varType: letDecl.typeAnnotation,
-      isReadOnly: true,
       isGlobal: scope.kind == ModuleScope,
       isInitialized: letDecl.initializer.isSome,
     )
@@ -73,6 +69,7 @@ proc initializeTable*(symbolMapper: SymbolMapper, scope: Scope, node: Node) =
   of NkFunDecl:
     # Handle function declarations
     let funDecl = node.funDeclNode
+    let functionScope = newScope(FunctionScope, scope, funDecl.identifier)
 
     # Create function symbol
     var paramTypes: seq[Type] = @[]
@@ -81,11 +78,11 @@ proc initializeTable*(symbolMapper: SymbolMapper, scope: Scope, node: Node) =
 
     let funSymbol = Symbol(
       name: funDecl.identifier,
-      pos: node.pos,
-      isPublic: funDecl.isPublic,
+      node: node,
       kind: Function,
       returnType: funDecl.returnType,
       paramTypes: paramTypes,
+      scope: functionScope,
     )
 
     if not scope.addSymbol(funDecl.identifier, funSymbol):
@@ -95,17 +92,13 @@ proc initializeTable*(symbolMapper: SymbolMapper, scope: Scope, node: Node) =
 
     # Create function scope if body exists
     if funDecl.body.isSome:
-      let functionScope = newScope(FunctionScope, scope, funDecl.identifier)
-
       # Add parameters to function scope
       for param in funDecl.parameters:
         let paramSymbol = Symbol(
           name: param.identifier,
-          pos: node.pos,
-          isPublic: false,
+          node: node,
           kind: Variable,
           varType: param.paramType,
-          isReadOnly: true, # Parameters are read-only 
           isGlobal: false,
           isInitialized: true, # Parameters are initialized
         )

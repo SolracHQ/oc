@@ -8,8 +8,8 @@ type ReachabilityChecker* = ref object
   hasError*: bool
 
 proc reachabilityError*(checker: ReachabilityChecker, position: Position, msg: string) =
-  ## Prints an error message for the reachability checker
-  logError("ReachabilityChecker", msg, position, checker.fileInfo.content)
+  ## Prints an error message for the reachability checker  
+  logError("ReachabilityChecker", msg, position)
   checker.hasError = true
 
 proc newReachabilityChecker*(fileInfo: FileInfo): ReachabilityChecker =

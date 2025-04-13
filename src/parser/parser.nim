@@ -32,7 +32,7 @@ proc parserError(parser: var Parser, error: string) =
       parser.tokens.len - 1
     else:
       parser.current
-  logError("Parser", error, parser.tokens[current].pos, parser.file.content)
+  logError("Parser", error, parser.tokens[current].pos)
   parser.hasError = true
   raise PanicMode()
 

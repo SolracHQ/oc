@@ -34,11 +34,11 @@ proc extractLine(source: string, position: int): tuple[line: string, columnOffse
   
   return (problemLine, columnOffset)
 
-proc logError*(stage: string, error: string, position: Position, source: string) =
+proc logError*(stage: string, error: string, position: Position, hint: string = "") =
   ## Log an error with source code context
   let 
     termWidth = getTerminalWidth()
-    extracted = extractLine(source, position.offset)
+    extracted = extractLine(position.file.content, position.offset)
     problemLine = extracted.line
     columnInLine = position.offset - extracted.columnOffset
   
@@ -59,6 +59,14 @@ proc logError*(stage: string, error: string, position: Position, source: string)
     caretLine.add('^')
     
     stdout.styledWriteLine(fgRed, caretLine)
+    
+    # Print hint if provided
+    if hint.len > 0:
+      var hintLine = ""
+      for i in 0..<columnInLine:
+        hintLine.add(' ')
+      hintLine.add("└ " & hint)
+      stdout.styledWriteLine(fgYellow, hintLine)
   else:
     # For long lines, print a message and the position
     echo "Line too long to display (exceeds terminal width)"

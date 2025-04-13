@@ -186,3 +186,38 @@ type
 # Node constructors
 proc newModule*(pos: Position, statements: seq[Node]): Node =
   Node(kind: NkModule, pos: pos, moduleNode: ModuleNode(statements: statements))
+
+# Annotation helper functions
+proc hasAnnotation*(annotations: seq[Annotation], name: string): bool =
+  ## Checks if a specific annotation exists in the given annotations list
+  for ann in annotations:
+    if ann.name == name:
+      return true
+  return false
+
+proc getAnnotation*(annotations: seq[Annotation], name: string): Option[Annotation] =
+  ## Gets a specific annotation from the annotations list if it exists
+  for ann in annotations:
+    if ann.name == name:
+      return some(ann)
+  return none(Annotation)
+
+proc getAnnotationArg*(annotation: Annotation, name: string): Option[AnnotationArgNode] =
+  ## Gets a specific argument from an annotation if it exists
+  for arg in annotation.args:
+    if arg.name == name:
+      return some(arg)
+  return none(AnnotationArgNode)
+
+proc getAnnotationArgValue*(annotations: seq[Annotation], annotationName, argName: string): Option[Node] =
+  ## Gets a specific annotation argument's value if both the annotation and argument exist
+  let annOpt = getAnnotation(annotations, annotationName)
+  if annOpt.isNone:
+    return none(Node)
+    
+  let argOpt = getAnnotationArg(annOpt.get, argName)
+  if argOpt.isNone or argOpt.get.value.isNone:
+    return none(Node)
+    
+  return argOpt.get.value
+

@@ -19,7 +19,7 @@ proc current(lexer: var Lexer): var int {.inline.} =
 
 proc lexerError*(lexer: var Lexer, error: string) =
   ## Log an error during lexing
-  logError("Lexer", error, lexer.pos, lexer.pos.file.content)
+  logError("Lexer", error, lexer.pos)
   lexer.hasError = true
 
 proc newLexer*(file: FileInfo): Lexer =
@@ -198,7 +198,13 @@ proc scanToken(lexer: var Lexer) =
     scanString(lexer)
   of '0'..'9':
     scanNumber(lexer)
-  of 'a'..'z', 'A'..'Z', '_':
+  of '_':
+    # The only valid identifier starting with '_' is '_'
+    if lexer.peek.isValidIdentChar():
+      lexerError(lexer, "Invalid identifier starting with '_'")
+      return
+    scanIdentifier(lexer)
+  of 'a'..'z', 'A'..'Z':
     # Check if it's a C-string (c followed by a double quote)
     if c == 'c' and lexer.peek() == '"':
       lexer.start = lexer.current  # Reset start to after the 'c'

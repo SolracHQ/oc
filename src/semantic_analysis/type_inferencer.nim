@@ -43,9 +43,9 @@ type TypeInferencer* = ref object
   fileInfo*: FileInfo
   hasError*: bool
 
-proc typeInferenceError*(inferencer: TypeInferencer, position: Position, msg: string) =
+proc inferenceError*(inferencer: TypeInferencer, position: Position, msg: string) =
   ## Prints an error message for the type inferencer
-  logError("TypeInferencer", msg, position, inferencer.fileInfo.content)
+  logError("TypeInferencer", msg, position)
   inferencer.hasError = true
 
 proc newTypeInferencer*(fileInfo: FileInfo): TypeInferencer =
@@ -91,19 +91,19 @@ proc inferExpressionType*(inferencer: TypeInferencer, scope: Scope, node: Node):
     let symbolOpt = scope.findSymbol(identifier, node.pos)
     
     if symbolOpt.isNone:
-      inferencer.typeInferenceError(node.pos, "Cannot infer type: undeclared identifier '" & identifier & "'")
+      inferencer.inferenceError(node.pos, "Cannot infer type: undeclared identifier '" & identifier & "'")
       result = Type(kind: TkMeta, metaKind: MkResolveError, name: "undeclared_identifier")
     else:
       let symbol = symbolOpt.get()
       case symbol.kind:
       of Variable:
         if not symbol.isInitialized and not symbol.isReadOnly:
-          inferencer.typeInferenceError(node.pos, "Cannot infer type from uninitialized variable '" & identifier & "'")
+          inferencer.inferenceError(node.pos, "Cannot infer type from uninitialized variable '" & identifier & "'")
           result = Type(kind: TkMeta, metaKind: MkResolveError, name: "uninitialized_variable")
         else:
           result = symbol.varType
       of Function:
-        inferencer.typeInferenceError(node.pos, "Cannot use function '" & identifier & "' as a value")
+        inferencer.inferenceError(node.pos, "Cannot use function '" & identifier & "' as a value")
         result = Type(kind: TkMeta, metaKind: MkResolveError, name: "function_as_value")
       of Type:
         result = symbol.typeRepr
@@ -116,16 +116,16 @@ proc inferExpressionType*(inferencer: TypeInferencer, scope: Scope, node: Node):
       let symbolOpt = scope.findSymbol(funcName, callee.pos)
       
       if symbolOpt.isNone:
-        inferencer.typeInferenceError(node.pos, "Call to undefined function '" & funcName & "'")
+        inferencer.inferenceError(node.pos, "Call to undefined function '" & funcName & "'")
         result = Type(kind: TkMeta, metaKind: MkResolveError, name: "undefined_function")
       elif symbolOpt.get().kind != Function:
-        inferencer.typeInferenceError(node.pos, "Cannot call non-function '" & funcName & "'")
+        inferencer.inferenceError(node.pos, "Cannot call non-function '" & funcName & "'")
         result = Type(kind: TkMeta, metaKind: MkResolveError, name: "non_function_call")
       else:
         # Get return type of the function
         result = symbolOpt.get().returnType
     else:
-      inferencer.typeInferenceError(node.pos, "Complex function calls not yet supported")
+      inferencer.inferenceError(node.pos, "Complex function calls not yet supported")
       result = Type(kind: TkMeta, metaKind: MkResolveError, name: "unsupported_call")
   
   of NkGroupExpr:
@@ -143,7 +143,7 @@ proc inferExpressionType*(inferencer: TypeInferencer, scope: Scope, node: Node):
                                                              Float, Float32, Float64}:
         result = operand
       else:
-        inferencer.typeInferenceError(node.pos, "Unary " & $node.unaryOpNode.operator & " requires numeric operand")
+        inferencer.inferenceError(node.pos, "Unary " & $node.unaryOpNode.operator & " requires numeric operand")
         result = Type(kind: TkMeta, metaKind: MkResolveError, name: "type_mismatch")
     
     of TkBang:
@@ -151,11 +151,11 @@ proc inferExpressionType*(inferencer: TypeInferencer, scope: Scope, node: Node):
       if operand.kind == TkPrimitive and operand.primitive == Bool:
         result = Type(kind: TkPrimitive, primitive: Bool)
       else:
-        inferencer.typeInferenceError(node.pos, "Logical negation requires boolean operand")
+        inferencer.inferenceError(node.pos, "Logical negation requires boolean operand")
         result = Type(kind: TkMeta, metaKind: MkResolveError, name: "non_boolean_negation")
     
     else:
-      inferencer.typeInferenceError(node.pos, "Unsupported unary operator: " & $node.unaryOpNode.operator)
+      inferencer.inferenceError(node.pos, "Unsupported unary operator: " & $node.unaryOpNode.operator)
       result = Type(kind: TkMeta, metaKind: MkResolveError, name: "unsupported_unary")
   
   of NkLogicalExpr:
@@ -164,10 +164,10 @@ proc inferExpressionType*(inferencer: TypeInferencer, scope: Scope, node: Node):
     let rightType = inferExpressionType(inferencer, scope, node.binaryOpNode.right)
     
     if leftType.kind != TkPrimitive or leftType.primitive != Bool:
-      inferencer.typeInferenceError(node.binaryOpNode.left.pos, "Logical expression requires boolean operands")
+      inferencer.inferenceError(node.binaryOpNode.left.pos, "Logical expression requires boolean operands")
       result = Type(kind: TkMeta, metaKind: MkResolveError, name: "non_boolean_logical")
     elif rightType.kind != TkPrimitive or rightType.primitive != Bool:
-      inferencer.typeInferenceError(node.binaryOpNode.right.pos, "Logical expression requires boolean operands")
+      inferencer.inferenceError(node.binaryOpNode.right.pos, "Logical expression requires boolean operands")
       result = Type(kind: TkMeta, metaKind: MkResolveError, name: "non_boolean_logical")
     else:
       result = Type(kind: TkPrimitive, primitive: Bool)
@@ -180,11 +180,11 @@ proc inferExpressionType*(inferencer: TypeInferencer, scope: Scope, node: Node):
     # Check if the types are exactly the same
     if leftType.kind == TkPrimitive and rightType.kind == TkPrimitive:
       if leftType.primitive != rightType.primitive:
-        inferencer.typeInferenceError(node.pos, "Type mismatch in comparison: " & $leftType.primitive & 
+        inferencer.inferenceError(node.pos, "Type mismatch in comparison: " & $leftType.primitive & 
                                         " cannot be compared with " & $rightType.primitive)
       result = Type(kind: TkPrimitive, primitive: Bool)
     else:
-      inferencer.typeInferenceError(node.pos, "Type mismatch in comparison")
+      inferencer.inferenceError(node.pos, "Type mismatch in comparison")
       result = Type(kind: TkPrimitive, primitive: Bool) # Still return bool, but we've logged the error
   
   of NkAdditiveExpr, NkMultiplicativeExpr:
@@ -205,7 +205,7 @@ proc inferExpressionType*(inferencer: TypeInferencer, scope: Scope, node: Node):
         if leftType.primitive == rightType.primitive:
           result = leftType
         else:
-          inferencer.typeInferenceError(node.pos, "Type mismatch in arithmetic operation: " & 
+          inferencer.inferenceError(node.pos, "Type mismatch in arithmetic operation: " & 
                               $leftType & " and " & $rightType & 
                               " (implicit conversion not allowed)")
           result = Type(kind: TkMeta, metaKind: MkResolveError, name: "type_mismatch")
@@ -222,7 +222,7 @@ proc inferExpressionType*(inferencer: TypeInferencer, scope: Scope, node: Node):
         if leftType.primitive == rightType.primitive:
           result = leftType
         else:
-          inferencer.typeInferenceError(node.pos, "Type mismatch in arithmetic operation: " & 
+          inferencer.inferenceError(node.pos, "Type mismatch in arithmetic operation: " & 
                               $leftType & " and " & $rightType & 
                               " (implicit conversion not allowed)")
           result = Type(kind: TkMeta, metaKind: MkResolveError, name: "type_mismatch")
@@ -235,7 +235,7 @@ proc inferExpressionType*(inferencer: TypeInferencer, scope: Scope, node: Node):
     # Error case: mismatched type families (int vs float)
     elif (isIntFamily(leftType) and isFloatFamily(rightType)) or 
          (isFloatFamily(leftType) and isIntFamily(rightType)):
-      inferencer.typeInferenceError(node.pos, "Type mismatch in arithmetic operation: " & 
+      inferencer.inferenceError(node.pos, "Type mismatch in arithmetic operation: " & 
                            $leftType & " and " & $rightType & 
                            " (int and float types cannot be mixed)")
       result = Type(kind: TkMeta, metaKind: MkResolveError, name: "type_family_mismatch")
@@ -243,7 +243,7 @@ proc inferExpressionType*(inferencer: TypeInferencer, scope: Scope, node: Node):
     # Error case: mismatched type families (int vs uint)
     elif (isIntFamily(leftType) and isUIntFamily(rightType)) or 
          (isUIntFamily(leftType) and isIntFamily(rightType)):
-      inferencer.typeInferenceError(node.pos, "Type mismatch in arithmetic operation: " & 
+      inferencer.inferenceError(node.pos, "Type mismatch in arithmetic operation: " & 
                            $leftType & " and " & $rightType & 
                            " (int and uint types cannot be mixed)")
       result = Type(kind: TkMeta, metaKind: MkResolveError, name: "type_family_mismatch")
@@ -251,14 +251,14 @@ proc inferExpressionType*(inferencer: TypeInferencer, scope: Scope, node: Node):
     # Error case: mismatched type families (float vs uint)
     elif (isFloatFamily(leftType) and isUIntFamily(rightType)) or 
          (isUIntFamily(leftType) and isFloatFamily(rightType)):
-      inferencer.typeInferenceError(node.pos, "Type mismatch in arithmetic operation: " & 
+      inferencer.inferenceError(node.pos, "Type mismatch in arithmetic operation: " & 
                            $leftType & " and " & $rightType & 
                            " (float and uint types cannot be mixed)")
       result = Type(kind: TkMeta, metaKind: MkResolveError, name: "type_family_mismatch")
     
     # Other error cases
     else:
-      inferencer.typeInferenceError(node.pos, "Arithmetic operations require numeric types")
+      inferencer.inferenceError(node.pos, "Arithmetic operations require numeric types")
       result = Type(kind: TkMeta, metaKind: MkResolveError, name: "non_numeric_arithmetic")
       
   of NkAssignment:
@@ -267,7 +267,7 @@ proc inferExpressionType*(inferencer: TypeInferencer, scope: Scope, node: Node):
   
   of NkMemberAccess:
     # Member access is more complex and will be implemented later
-    inferencer.typeInferenceError(node.pos, "Member access type inference not yet supported")
+    inferencer.inferenceError(node.pos, "Member access type inference not yet supported")
     result = Type(kind: TkMeta, metaKind: MkResolveError, name: "unsupported_member_access")
   
   of NkType:
@@ -277,7 +277,7 @@ proc inferExpressionType*(inferencer: TypeInferencer, scope: Scope, node: Node):
   of NkVarDecl, NkLetDecl, NkFunDecl, NkBlockStmt, NkExprStmt, NkReturnStmt, NkModule, 
      NkCommentLiteral, NkNop:
     # These are not expressions
-    inferencer.typeInferenceError(node.pos, "Internal error: trying to infer type of non-expression")
+    inferencer.inferenceError(node.pos, "Internal error: trying to infer type of non-expression")
     result = Type(kind: TkMeta, metaKind: MkResolveError, name: "non_expression")
 
 proc analyzeTypeInference*(inferencer: TypeInferencer, scope: Scope, node: Node) =
@@ -296,7 +296,7 @@ proc analyzeTypeInference*(inferencer: TypeInferencer, scope: Scope, node: Node)
     # Only infer if type is MkToInfer
     if varDecl.typeAnnotation.kind == TkMeta and varDecl.typeAnnotation.metaKind == MkToInfer:
       if varDecl.initializer.isNone:
-        inferencer.typeInferenceError(node.pos, "Cannot infer type for variable '" & varDecl.identifier & "' without initializer")
+        inferencer.inferenceError(node.pos, "Cannot infer type for variable '" & varDecl.identifier & "' without initializer")
       else:
         # Infer type from initializer
         var inferredType = inferExpressionType(inferencer, scope, varDecl.initializer.get())
@@ -319,7 +319,7 @@ proc analyzeTypeInference*(inferencer: TypeInferencer, scope: Scope, node: Node)
           symbolOpt.get().varType = inferredType
           node.varDeclNode.typeAnnotation = inferredType
         else:
-          inferencer.typeInferenceError(node.pos, "Internal error: symbol '" & varDecl.identifier & "' not found in scope")
+          inferencer.inferenceError(node.pos, "Internal error: symbol '" & varDecl.identifier & "' not found in scope")
     
     # Process initializer
     if varDecl.initializer.isSome:
@@ -344,7 +344,7 @@ proc analyzeTypeInference*(inferencer: TypeInferencer, scope: Scope, node: Node)
           symbolOpt.get().varType = inferredType
           node.letDeclNode.typeAnnotation = inferredType
         else:
-          inferencer.typeInferenceError(node.pos, "Internal error: symbol '" & letDecl.identifier & "' not found in scope")
+          inferencer.inferenceError(node.pos, "Internal error: symbol '" & letDecl.identifier & "' not found in scope")
     
     # Process initializer
     if letDecl.initializer.isSome:
@@ -377,7 +377,7 @@ proc analyzeTypeInference*(inferencer: TypeInferencer, scope: Scope, node: Node)
       # Check for incompatible types
       elif (isIntFamily(symbol.varType) and isFloatFamily(valueType)) or
            (isFloatFamily(symbol.varType) and isIntFamily(valueType)):
-        inferencer.typeInferenceError(node.pos, "Type mismatch in assignment: cannot assign " & 
+        inferencer.inferenceError(node.pos, "Type mismatch in assignment: cannot assign " & 
                              $valueType & " to " & $symbol.varType)
     
     # Process the value expression

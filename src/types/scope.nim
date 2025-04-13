@@ -13,22 +13,21 @@ type
   SymbolKind* = enum
     Variable # Represents a variable
     Function # Represents a function
-    Type
+    Type # Represents a type
 
   Symbol* = ref object
     name*: string
     canonicalName*: string # The C name of the symbol
-    pos*: Position
-    isPublic*: bool
+    node*: Node
     case kind*: SymbolKind
     of Variable:
       varType*: Type
-      isReadOnly*: bool
       isGlobal*: bool
       isInitialized*: bool
     of Function:
       returnType*: Type
       paramTypes*: seq[Type]
+      scope*: Scope
     of Type:
       typeRepr*: Type
 
@@ -46,9 +45,13 @@ proc newScope*(kind: ScopeKind, parent: Scope, name: string): Scope =
       raise newException(ValueError, "Scope already exists: " & name)
     parent.children[name] = result
 
-proc calculateCanonicalName*(scope: Scope, name: string): string =
+proc calculateCanonicalName*(scope: Scope, symbol: Symbol): string =
   ## Canonical name is __{symbol_name}_at_{scope_name}_at_{parent_scope_name}_at_..
-  var canonicalName = "__" & name
+  ## Only for module level names var, let declared globally or any function
+  ## This is used to avoid name clashes in the generated C code
+  if scope.kind != ModuleScope and symbol.kind != Function:
+    return symbol.name
+  var canonicalName = "__" & symbol.name
   var currentScope = scope
   while currentScope != nil:
     if currentScope.name.len > 0:
@@ -58,7 +61,8 @@ proc calculateCanonicalName*(scope: Scope, name: string): string =
 
 proc addSymbol*(scope: Scope, name: string, symbol: Symbol): bool =
   if not scope.symbols.hasKey(name):
-    symbol.canonicalName = calculateCanonicalName(scope, name)
+    symbol.name = name
+    symbol.canonicalName = calculateCanonicalName(scope, symbol)
     scope.symbols[name] = symbol
     return true
   result = false
@@ -78,7 +82,7 @@ proc findSymbol*(scope: Scope, name: string, at: Position): Option[Symbol] =
         return some(symbol)
       elif symbol.kind == Type:
         return some(symbol)
-      elif at >= symbol.pos:
+      elif at >= symbol.node.pos:
         return some(symbol)
     
     # Determine if we need to skip scopes
@@ -94,3 +98,7 @@ proc findSymbol*(scope: Scope, name: string, at: Position): Option[Symbol] =
   
   # Symbol not found
   return none(Symbol)
+
+proc isReadOnly*(symbol: Symbol): bool =
+  ## Check if the symbol is read-only
+  result = symbol.kind == Variable and symbol.node.kind == NkLetDecl

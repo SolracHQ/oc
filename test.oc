@@ -1,19 +1,22 @@
-#[external(header="<stdio.h>", name="printf")]
-fun printf(format: CString, _: CVarArgs): Int32
+#[external(header="stdio.h", name="printf")]
+fun printf(format: CString, _: CVarArgs)
+
+pub let c: Int32 = 43
 
 #[entrypoint]
-pub fun main(): Int {
+pub fun main(): Int32 {
 
   fun printInt(i: Int32) {
     // Print an integer using printf
     printf(c"%d\n", i)
   }
 
-  // test mat
-  let a: Int32 = 5
-  let b = 8 + a
+  printf(c"Hello, World!\n")
 
-  printInt(a)
+  // test math
+  let a: Int32 = c * 2
+  let b = 8 + a
+  printInt(b)
 
   return 0
 }

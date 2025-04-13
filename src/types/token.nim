@@ -156,7 +156,7 @@ const Primitives* = { TkInt, TkInt8, TkInt16, TkInt32, TkInt64,
                      TkUInt, TkUInt8, TkUInt16, TkUInt32, TkUInt64,
                      TkFloat, TkFloat32, TkFloat64,
                      TkString, TkChar, TkBool,
-                     TkVoid, TkCString }
+                     TkVoid, TkCString, TkCVarArgs }
 
 proc getIdentKind*(lexeme: string): TokenKind =
   if Keywords.hasKey(lexeme):
@@ -299,4 +299,12 @@ proc `$`*(token: Token): string =
   elif token.kind == TkComment: "'//..'"
   else:
     token.lexeme
-  result = "Token(" & lexeme & ", " & $token.kind & ")"
+  
+  if token.kind in {TkInt, TkInt8, TkInt16, TkInt32, TkInt64,
+                   TkUInt, TkUInt8, TkUInt16, TkUInt32, TkUInt64,
+                   TkFloat, TkFloat32, TkFloat64,
+                   TkString, TkChar, TkBool,
+                   TkVoid, TkType, TkCString, TkCVarArgs, TkVarArgs}:
+    result = "Token(" & lexeme & ", " & $token.kind & ", Type: " & $token.`type` & ")"
+  else:
+    result = "Token(" & lexeme & ", " & $token.kind & ")"

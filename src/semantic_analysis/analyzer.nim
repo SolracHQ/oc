@@ -18,9 +18,9 @@ type Analyzer* = ref object
   typeInferencer: TypeInferencer
   typeChecker: TypeChecker
 
-proc analyzerError*(analyzer: Analyzer, position: Position, msg: string) =
-  ## Prints an error message for the analyzer
-  logError("Analyzer", msg, position, analyzer.fileInfo.content)
+proc analyzerError(analyzer: Analyzer, position: Position, msg: string) =
+  ## Logs an error during analysis
+  logError("Analyzer", msg, position)
   analyzer.hasError = true
 
 proc newAnalyzer*(fileInfo: FileInfo): Analyzer =

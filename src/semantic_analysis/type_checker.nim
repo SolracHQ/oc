@@ -8,9 +8,9 @@ type TypeChecker* = ref object
   fileInfo*: FileInfo
   hasError*: bool
 
-proc typeCheckError*(checker: TypeChecker, position: Position, msg: string) =
+proc typeCheckError*(checker: TypeChecker, position: Position, msg: string, hint: string) =
   ## Prints an error message for the type checker
-  logError("TypeChecker", msg, position, checker.fileInfo.content)
+  logError("TypeChecker", msg, position, hint)
   checker.hasError = true
 
 proc newTypeChecker*(fileInfo: FileInfo): TypeChecker =
@@ -45,7 +45,7 @@ proc areTypesCompatible(checker: TypeChecker, expected: Type, actual: Type,
     return true
   
   # Types are not compatible
-  checker.typeCheckError(pos, "Type mismatch: expected '" & $expected & "', got '" & $actual & "'")
+  checker.typeCheckError(pos, "Type mismatch", "expected '" & $expected & "', got '" & $actual & "'")
   return false
 
 proc analyzeTypeChecking*(checker: TypeChecker, scope: Scope, node: Node) =
@@ -90,11 +90,11 @@ proc analyzeTypeChecking*(checker: TypeChecker, scope: Scope, node: Node) =
     # Get variable type
     let symbolOpt = scope.findSymbol(identifier, node.pos)
     if symbolOpt.isNone:
-      checker.typeCheckError(node.pos, "Assignment to undeclared variable '" & identifier & "'")
+      checker.typeCheckError(node.pos, "Assignment to undeclared variable '" & identifier & "'", "use 'let' or 'var' to declare it")
     else:
       let symbol = symbolOpt.get()
       if symbol.kind != Variable:
-        checker.typeCheckError(node.pos, "Cannot assign to non-variable '" & identifier & "'")
+        checker.typeCheckError(node.pos, "Cannot assign to non-variable '" & identifier & "'", "Defined here " & $symbol.node.pos & "as " & $symbol.kind)
       else:
         # Check type compatibility
         let inferencer = newTypeInferencer(checker.fileInfo)
@@ -115,9 +115,9 @@ proc analyzeTypeChecking*(checker: TypeChecker, scope: Scope, node: Node) =
       let symbolOpt = scope.findSymbol(funcName, callee.pos)
       
       if symbolOpt.isNone:
-        checker.typeCheckError(callee.pos, "Call to undefined function '" & funcName & "'")
+        checker.typeCheckError(callee.pos, "Call to undefined function '" & funcName & "'", "Declare it with 'fun'")
       elif symbolOpt.get().kind != Function:
-        checker.typeCheckError(callee.pos, "Cannot call non-function '" & funcName & "'")
+        checker.typeCheckError(callee.pos, "Cannot call non-function '" & funcName & "'", "Defined here " & $symbolOpt.get().node.pos & "as " & $symbolOpt.get().kind)
       else:
         let funcSymbol = symbolOpt.get()
         let paramTypes = funcSymbol.paramTypes
@@ -128,14 +128,16 @@ proc analyzeTypeChecking*(checker: TypeChecker, scope: Scope, node: Node) =
                          paramTypes[^1].metaKind == MkCVarArgs
         
         # Check number of arguments with varargs handling
-        if hasVarArgs and arguments.len < paramTypes.len - 1:
-            checker.typeCheckError(node.pos, "Too few arguments to function '" & funcName & "'")
-        elif arguments.len < paramTypes.len:
-          # Regular function without varargs
-          checker.typeCheckError(node.pos, "Too few arguments to function '" & funcName & "'")
-        elif arguments.len > paramTypes.len:
-          # Too many arguments for a regular function
-          checker.typeCheckError(node.pos, "Too many arguments to function '" & funcName & "'")
+        if hasVarArgs: 
+          if arguments.len < paramTypes.len - 1:
+            checker.typeCheckError(node.pos, "Too few arguments to function '" & funcName & "'", "Expected at least " & $(paramTypes.len - 1) & " arguments but got " & $arguments.len)
+        if not hasVarArgs:
+          if arguments.len < paramTypes.len:
+            # Regular function without varargs
+            checker.typeCheckError(node.pos, "Too few arguments to function '" & funcName & "'", "Expected " & $paramTypes.len & " arguments but got " & $arguments.len)
+          elif arguments.len > paramTypes.len:
+            # Too many arguments for a regular function
+            checker.typeCheckError(node.pos, "Too many arguments to function '" & funcName & "'", "Expected " & $paramTypes.len & " arguments but got " & $arguments.len)
         
         # Check each argument type
         let inferencer = newTypeInferencer(checker.fileInfo)
@@ -208,10 +210,10 @@ proc analyzeTypeChecking*(checker: TypeChecker, scope: Scope, node: Node) =
     let rightType = inferExpressionType(inferencer, scope, node.binaryOpNode.right)
     
     if leftType.kind != TkPrimitive or leftType.primitive != Bool:
-      checker.typeCheckError(node.binaryOpNode.left.pos, "Logical operator requires boolean operands")
+      checker.typeCheckError(node.binaryOpNode.left.pos, "Logical operator requires boolean operands", "left operand is " & $leftType)
     
     if rightType.kind != TkPrimitive or rightType.primitive != Bool:
-      checker.typeCheckError(node.binaryOpNode.right.pos, "Logical operator requires boolean operands")
+      checker.typeCheckError(node.binaryOpNode.right.pos, "Logical operator requires boolean operands", "right operand is " & $rightType)
     
     # Process both operands
     analyzeTypeChecking(checker, scope, node.binaryOpNode.left)
@@ -225,7 +227,7 @@ proc analyzeTypeChecking*(checker: TypeChecker, scope: Scope, node: Node) =
     
     if leftType.kind == TkPrimitive and rightType.kind == TkPrimitive:
       if leftType.primitive != rightType.primitive:
-        checker.typeCheckError(node.pos, "Type mismatch in comparison: " & $leftType.primitive & 
+        checker.typeCheckError(node.pos, "Type mismatch in comparison.", $leftType.primitive & 
                                      " cannot be compared with " & $rightType.primitive)
     
     # Process both operands
@@ -246,21 +248,21 @@ proc analyzeTypeChecking*(checker: TypeChecker, scope: Scope, node: Node) =
       discard
     elif (isIntFamily(leftType) and isFloatFamily(rightType)) or
          (isFloatFamily(leftType) and isIntFamily(rightType)):
-      checker.typeCheckError(node.pos, "Type mismatch in arithmetic operation: " & 
+      checker.typeCheckError(node.pos, "Type mismatch in arithmetic operation.",
                          $leftType & " and " & $rightType & 
                          " (int and float types cannot be mixed)")
     elif (isIntFamily(leftType) and isUIntFamily(rightType)) or
          (isUIntFamily(leftType) and isIntFamily(rightType)):
-      checker.typeCheckError(node.pos, "Type mismatch in arithmetic operation: " & 
+      checker.typeCheckError(node.pos, "Type mismatch in arithmetic operation.",
                          $leftType & " and " & $rightType & 
                          " (int and uint types cannot be mixed)")
     elif (isFloatFamily(leftType) and isUIntFamily(rightType)) or
          (isUIntFamily(leftType) and isFloatFamily(rightType)):
-      checker.typeCheckError(node.pos, "Type mismatch in arithmetic operation: " & 
+      checker.typeCheckError(node.pos, "Type mismatch in arithmetic operation.",
                          $leftType & " and " & $rightType & 
                          " (float and uint types cannot be mixed)")
     else:
-      checker.typeCheckError(node.pos, "Arithmetic operations require numeric types")
+      checker.typeCheckError(node.pos, "Arithmetic operations require numeric types", "but got " & $leftType & " and " & $rightType)
     
     # Process both operands
     analyzeTypeChecking(checker, scope, node.binaryOpNode.left)
@@ -275,13 +277,13 @@ proc analyzeTypeChecking*(checker: TypeChecker, scope: Scope, node: Node) =
     of TkMinus:
       # Negation requires numeric type
       if not (isIntFamily(operandType) or isFloatFamily(operandType) or isUIntFamily(operandType)):
-        checker.typeCheckError(node.pos, "Unary minus requires numeric operand")
+        checker.typeCheckError(node.pos, "Unary minus requires numeric operand", "but got " & $operandType)
     of TkBang:
       # Logical negation requires boolean
       if operandType.kind != TkPrimitive or operandType.primitive != Bool:
-        checker.typeCheckError(node.pos, "Logical negation requires boolean operand")
+        checker.typeCheckError(node.pos, "Logical negation requires boolean operand", "but got " & $operandType)
     else:
-      checker.typeCheckError(node.pos, "Unsupported unary operator: " & $node.unaryOpNode.operator)
+      checker.typeCheckError(node.pos, "Unsupported unary operator: " & $node.unaryOpNode.operator, "THis should not happen: " & $node.unaryOpNode.operator)
     
     # Process the operand
     analyzeTypeChecking(checker, scope, node.unaryOpNode.operand)

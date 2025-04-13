@@ -1,3 +1,5 @@
+import std/options
+
 type
   TypeKind* = enum
     TkPrimitive, TkMeta
@@ -27,6 +29,36 @@ type
         name*: string
       of MkType:
         typeRepr*: ref Type
+
+proc getCType*(t: Type): Option[string] =
+  ## Returns the C type representation of a Type
+  case t.kind:
+  of TkPrimitive:
+    case t.primitive:
+    of Int: result = some("Int64")
+    of Int8: result = some("Int8")
+    of Int16: result = some("Int16")
+    of Int32: result = some("Int32")
+    of Int64: result = some("Int64")
+    of UInt: result = some("UInt64")
+    of UInt8: result = some("UInt8")
+    of UInt16: result = some("UInt16")
+    of UInt32: result = some("UInt32")
+    of UInt64: result = some("UInt64")
+    of Float: result = some("Float64")
+    of Float32: result = some("Float32")
+    of Float64: result = some("Float64")
+    of Bool: result = some("Bool")
+    of Char: result = some("Char")
+    of String: result = some("String")
+    of Void: result = some("void")
+    of CString: result = some("char*")
+  of TkMeta:
+    case t.metaKind:
+    of MkCVarArgs:
+      result = some("...") # C varargs
+    else: 
+      result = none(string) # For now, no C type representation for meta types
 
 proc `==`*(a, b: Type): bool =
   ## Compares two Type objects for equality
@@ -71,9 +103,9 @@ proc `$`*(t: Type): string =
     of MkType:
       result = "Type(" & `$`(t.typeRepr[]) & ")"
     of MkIntInfer:
-      result = "Int"
+      result = "SomeInt"
     of MkFloatInfer:
-      result = "Float"
+      result = "SomeFloat"
     of MkUIntInfer:
-      result = "UInt"
+      result = "SomeUInt"
 
