@@ -1,11 +1,12 @@
 import ../lexer/lexer
-import ../types/[file_info, types, token, ast]
+import ../types/[file_info, types, token, ast, annotation]
 import ../reporter
 
 import std/options
 import std/random
 import std/sequtils
 import std/strutils
+import std/tables
 
 type
   PanicMode = ref object of ValueError ## Use error handling to recover from errors
@@ -39,8 +40,8 @@ proc parserError(parser: var Parser, error: string) =
 proc randomString(): string =
   ## Generate ids for code blocks
   ## This is a temporary solution, we should use a better way to generate unique ids
-  const lowerCaseAscii = 97 .. 122
-  result = 12.newSeqWith(lowerCaseAscii.rand.char).join("")
+  const mySet = {'a' .. 'z', 'A' .. 'Z', '0' .. '9'}
+  result = "b" & 12.newSeqWith(sample(mySet)).join("")
 
 proc isAtEnd(parser: var Parser): bool {.inline.} =
   ## Check if the parser has reached the end of the tokens
@@ -110,45 +111,58 @@ proc parsePrimary(parser: var Parser): Node =
     parser.parserError("Unexpected end of input")
   if parser.match({TKIdent}):
     let token = parser.peek(-1).get()
-    return Node(kind: NkIdentifier, pos: token.pos, identifierNode: IdentifierNode(name: token.lexeme))
+    return Node(
+      kind: NkIdentifier,
+      pos: token.pos,
+      identifierNode: IdentifierNode(name: token.lexeme),
+    )
   elif parser.match({TKIntLit}):
     let token = parser.peek(-1).get()
     return Node(
-      kind: NkIntLiteral, 
-      pos: token.pos, 
-      intLiteralNode: IntLiteralNode(value: token.intValue)
+      kind: NkIntLiteral,
+      pos: token.pos,
+      intLiteralNode: IntLiteralNode(value: token.intValue),
     )
   elif parser.match({TKUIntLit}):
     let token = parser.peek(-1).get()
     return Node(
-      kind: NkUIntLiteral, 
-      pos: token.pos, 
-      uintLiteralNode: UIntLiteralNode(value: token.uintValue)
+      kind: NkUIntLiteral,
+      pos: token.pos,
+      uintLiteralNode: UIntLiteralNode(value: token.uintValue),
     )
   elif parser.match({TKFloatLit}):
     let token = parser.peek(-1).get()
     return Node(
-      kind: NkFloatLiteral, pos: token.pos, floatLiteralNode: FloatLiteralNode(value: token.floatValue)
+      kind: NkFloatLiteral,
+      pos: token.pos,
+      floatLiteralNode: FloatLiteralNode(value: token.floatValue),
     )
   elif parser.match({TKStringLit}):
     let token = parser.peek(-1).get()
     return Node(
-      kind: NkStringLiteral, pos: token.pos, stringLiteralNode: StringLiteralNode(value: token.lexeme)
+      kind: NkStringLiteral,
+      pos: token.pos,
+      stringLiteralNode: StringLiteralNode(value: token.lexeme),
     )
   elif parser.match({TKCStringLit}):
     let token = parser.peek(-1).get()
     return Node(
-      kind: NkCStringLiteral, pos: token.pos, cStringLiteralNode: CStringLiteralNode(value: token.lexeme)
+      kind: NkCStringLiteral,
+      pos: token.pos,
+      cStringLiteralNode: CStringLiteralNode(value: token.lexeme),
     )
   elif parser.match({TKCharLit}):
     let token = parser.peek(-1).get()
     return Node(
-      kind: NkCharLiteral, pos: token.pos, charLiteralNode: CharLiteralNode(value: token.lexeme[0])
+      kind: NkCharLiteral,
+      pos: token.pos,
+      charLiteralNode: CharLiteralNode(value: token.lexeme[0]),
     )
   elif parser.match({TKBoolLit}):
     let token = parser.peek(-1).get()
     return Node(
-      kind: NkBoolLiteral, pos: token.pos,
+      kind: NkBoolLiteral,
+      pos: token.pos,
       boolLiteralNode: BoolLiteralNode(value: token.lexeme == "true"),
     )
   elif parser.match({TKNil}):
@@ -157,7 +171,8 @@ proc parsePrimary(parser: var Parser): Node =
     let token = parser.peek(-1).get()
     let expr = parser.parseExpression()
     discard parser.consume({TKRParen}, "Expect ')' after expression.")
-    return Node(kind: NkGroupExpr, pos: token.pos, groupNode: GroupNode(expression: expr))
+    return
+      Node(kind: NkGroupExpr, pos: token.pos, groupNode: GroupNode(expression: expr))
   elif parser.match(Primitives):
     let token = parser.peek(-1).get()
     return Node(kind: NkType, pos: token.pos, typeNode: token.`type`)
@@ -355,7 +370,7 @@ proc parseType(parser: var Parser): Type =
 proc parseExpressionStmt(parser: var Parser): Node =
   ## Parse an expression statement
   let expr = parser.parseExpression()
-  return Node(kind: NkExprStmt, exprStmtNode: ExprStmtNode(expression: expr))
+  return Node(kind: NkExprStmt, pos: expr.pos, exprStmtNode: ExprStmtNode(expression: expr))
 
 proc parseReturnStmt(parser: var Parser): Node =
   ## Parse a return statement
@@ -382,12 +397,12 @@ proc parseBlockStmt(parser: var Parser): Node =
     blockStmtNode: BlockStmtNode(statements: statements, blockId: randomString()),
   )
 
-proc parseVarDecl(
-    parser: var Parser, annotations: seq[Annotation], isPublic: bool
-): Node =
+proc parseVarDecl(parser: var Parser, isPublic: bool, isReadOnly: bool = false): Node =
   ## Parse a variable declaration
   let token = parser.peek(-1).get()
-  discard parser.consume({TKIdent}, "Expect identifier after 'var'.")
+  discard parser.consume(
+    {TKIdent}, "Expect identifier after '" & (if isReadOnly: "let" else: "var") & "'."
+  )
   let identifier = parser.peek(-1).get().lexeme
   let typeAnnotation =
     if parser.match({TKColon}):
@@ -406,43 +421,12 @@ proc parseVarDecl(
       identifier: identifier,
       typeAnnotation: typeAnnotation,
       initializer: initializer,
-      annotations: annotations,
       isPublic: isPublic,
+      isReadOnly: isReadOnly,
     ),
   )
 
-proc parseLetDecl(
-    parser: var Parser, annotations: seq[Annotation], isPublic: bool
-): Node =
-  ## Parse a let declaration
-  let token = parser.peek(-1).get()
-  discard parser.consume({TKIdent}, "Expect identifier after 'let'.")
-  let identifier = parser.peek(-1).get().lexeme
-  let typeAnnotation =
-    if parser.match({TKColon}):
-      parser.parseType()
-    else:
-      Type(kind: TkMeta, metaKind: MkToInfer)
-  let initializer =
-    if parser.match({TKEqual}):
-      some(parser.parseExpression())
-    else:
-      none(Node)
-  return Node(
-    kind: NkLetDecl,
-    pos: token.pos,
-    letDeclNode: LetDeclNode(
-      identifier: identifier,
-      typeAnnotation: typeAnnotation,
-      initializer: initializer,
-      annotations: annotations,
-      isPublic: isPublic,
-    ),
-  )
-
-proc parseFunDecl(
-    parser: var Parser, annotations: seq[Annotation], isPublic: bool
-): Node =
+proc parseFunDecl(parser: var Parser, isPublic: bool): Node =
   ## Parse a function declaration
   let token = parser.peek(-1).get()
   discard parser.consume({TKIdent}, "Expect identifier after 'fun'.")
@@ -490,15 +474,16 @@ proc parseFunDecl(
       parameters: parameters,
       returnType: returnType,
       body: body,
-      annotations: annotations,
       isPublic: isPublic,
     ),
   )
 
-proc parseAnnotationArg(parser: var Parser): AnnotationArgNode =
+proc parseAnnotationProperties(
+    parser: var Parser
+): tuple[name: string, value: Option[string]] =
   ## Parse an annotation argument (name=value or just an identifier as flag)
   var name: string
-  var value: Option[Node]
+  var value: Option[string]
 
   # Case 1: identifier=value format
   if parser.check({TKIdent}) and parser.peek(1).isSome and
@@ -507,45 +492,19 @@ proc parseAnnotationArg(parser: var Parser): AnnotationArgNode =
     discard parser.consume({TKEqual}, "Expect '=' after argument name")
 
     # Parse the argument value (must be a literal)
-    if parser.match({TKIntLit, TKFloatLit, TKStringLit, TKCharLit, TKBoolLit, TKNil}):
+    if parser.match({TKIntLit, TKFloatLit, TKStringLit, TKBoolLit, TKNil}):
       let token = parser.peek(-1).get()
       case token.kind
       of TKIntLit:
-        value = some(
-          Node(
-            kind: NkIntLiteral, intLiteralNode: IntLiteralNode(value: token.intValue)
-          )
-        )
+        value = some($token.intValue)
       of TKFloatLit:
-        value = some(
-          Node(
-            kind: NkFloatLiteral,
-            floatLiteralNode: FloatLiteralNode(value: token.floatValue),
-          )
-        )
+        value = some($token.floatValue)
       of TKStringLit:
-        value = some(
-          Node(
-            kind: NkStringLiteral,
-            stringLiteralNode: StringLiteralNode(value: token.lexeme),
-          )
-        )
-      of TKCharLit:
-        value = some(
-          Node(
-            kind: NkCharLiteral,
-            charLiteralNode: CharLiteralNode(value: token.lexeme[0]),
-          )
-        )
+        value = some($token.stringValue)
       of TKBoolLit:
-        value = some(
-          Node(
-            kind: NkBoolLiteral,
-            boolLiteralNode: BoolLiteralNode(value: token.lexeme == "true"),
-          )
-        )
+        value = some(token.lexeme)
       of TKNil:
-        value = some(Node(kind: NkNilLiteral))
+        value = some("nil")
       else:
         discard # Can't happen due to the match pattern
     else:
@@ -555,11 +514,12 @@ proc parseAnnotationArg(parser: var Parser): AnnotationArgNode =
   elif parser.match({TKIdent}):
     name = parser.peek(-1).get().lexeme
     # Flag argument has no value
-    value = none(Node)
+    value = none(string)
   else:
     parser.parserError("Expect identifier or name=value pair in annotation argument")
 
-  return AnnotationArgNode(name: name, value: value)
+  result.name = name
+  result.value = value
 
 proc parseAnnotation(parser: var Parser): Annotation =
   ## Parse an annotation like #[name] or #[name(arg1, arg2=value)]
@@ -570,38 +530,40 @@ proc parseAnnotation(parser: var Parser): Annotation =
   let name = parser.peek(-1).get().lexeme
 
   # Parse optional arguments within parentheses
-  var args: seq[AnnotationArgNode] = @[]
+  var properties: Table[string, Option[string]] = initTable[string, Option[string]]()
   if parser.match({TKLParen}):
     # If there are arguments
     if not parser.check({TKRParen}):
       # Parse first argument
-      args.add(parser.parseAnnotationArg())
+      let (argName, argValue) = parser.parseAnnotationProperties()
+      properties[argName] = argValue
 
       # Parse remaining arguments (comma-separated)
       while parser.match({TKComma}):
-        args.add(parser.parseAnnotationArg())
+        let (argName, argValue) = parser.parseAnnotationProperties()
+        properties[argName] = argValue
 
     discard parser.consume({TKRParen}, "Expect ')' after annotation arguments")
 
   discard parser.consume({TKRBracket}, "Expect ']' after annotation")
 
-  return Annotation(name: name, args: args)
+  return Annotation(name: name, properties: properties)
 
-proc parseAnnotations(parser: var Parser): seq[Annotation] =
+proc parseAnnotations(parser: var Parser): Table[string, Annotation] =
   ## Parse multiple annotations
-  var annotations: seq[Annotation] = @[]
 
-  while true: # 
+  while true: #
     # check for the start of an annotation TkHash + TkLBracket
     let first = parser.peek()
     if first.isNone or first.get().kind != TKHash:
-      return annotations
+      return
     # Consume the TkHash token
     discard parser.advance()
     # Check for the opening bracket
     discard parser.consume({TKLBracket}, "Expect '[' after '#'")
     # Parse the annotation
-    annotations.add(parser.parseAnnotation())
+    let annotation = parser.parseAnnotation()
+    result[annotation.name] = annotation
     # Expect newLine or semicolon after annotation
     discard parser.consume(
       {TKNewline, TKSemicolon}, "Expect new line or semicolon after annotation"
@@ -610,42 +572,48 @@ proc parseAnnotations(parser: var Parser): seq[Annotation] =
     parser.cleanUpNewLines()
 
 proc parseStatement(parser: var Parser): Node =
-  ## Parse a statement
+  ## Parse a statement (flexible preamble: comments, annotations, newlines in any order)
   try:
-    parser.cleanUpNewLines()
-    # Parse any annotations that might precede a declaration
-    let annotations = parser.parseAnnotations()
+    var comments: seq[string]
+    var annotationsTable: Table[string, Annotation] = initTable[string, Annotation]()
 
-    # Handle statements without annotations
+    # Flexible preamble: loop until a statement token is found
+    while true:
+      if parser.check({TKComment}):
+        let token = parser.peek().get()
+        comments.add(token.lexeme)
+        discard parser.advance()
+      elif parser.check({TKNewline, TKSemicolon}):
+        discard parser.advance()
+      elif parser.check({TKHash}):
+        # Parse all consecutive annotations
+        let anns = parser.parseAnnotations()
+        for k, v in anns:
+          annotationsTable[k] = v
+      else:
+        break
+
+    var pub = false
     if parser.match({TKPub}):
-      if parser.match({TKVar}):
-        result = parser.parseVarDecl(annotations, true)
-      elif parser.match({TKLet}):
-        result = parser.parseLetDecl(annotations, true)
-      elif parser.match({TKFun}):
-        result = parser.parseFunDecl(annotations, true)
-    elif parser.match({TKVar}):
-      result = parser.parseVarDecl(annotations, false)
+      pub = true
+    if parser.match({TKVar}):
+      result = parser.parseVarDecl(pub, false)
     elif parser.match({TKLet}):
-      result = parser.parseLetDecl(annotations, false)
+      result = parser.parseVarDecl(pub, true)
     elif parser.match({TKFun}):
-      result = parser.parseFunDecl(annotations, false)
+      result = parser.parseFunDecl(pub)
     elif parser.match({TKReturn}):
       result = parser.parseReturnStmt()
     elif parser.match({TKLBrace}):
       result = parser.parseBlockStmt()
-    elif parser.match({TKComment}):
-      # Comment statement
-      let token = parser.peek(-1).get()
-      return Node(
-        kind: NkCommentLiteral,
-        commentLiteralNode: CommentLiteralNode(value: token.lexeme),
-      )
     else:
       result = parser.parseExpressionStmt()
+
+    result.annotations = Annotations(annotationsTable)
+    result.comments = comments
+
     if not parser.isAtEnd():
-      discard
-        parser.consume({TKSemicolon, TKNewline}, "Expect ';' or '\\n' after statement.")
+      discard parser.consume({TKSemicolon, TKNewline}, "Expect ';' or '\\n' after statement.")
   except PanicMode:
     # Synchronize to recover from errors
     parser.synchronize()

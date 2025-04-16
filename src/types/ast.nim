@@ -1,6 +1,7 @@
 import position
 import types
 import token
+import annotation
 import std/options
 
 type
@@ -10,8 +11,7 @@ type
     NkNop
 
     # Statements
-    NkVarDecl
-    NkLetDecl
+    NkVarDecl  # Now represents both var and let declarations
     NkFunDecl
     NkBlockStmt
     NkExprStmt
@@ -39,7 +39,6 @@ type
     NkCharLiteral
     NkBoolLiteral
     NkNilLiteral
-    NkCommentLiteral # Useful for generated code, maybe
 
     # Types
     NkType
@@ -52,17 +51,10 @@ type
   # Statements
   VarDeclNode* = object
     isPublic*: bool
+    isReadOnly*: bool  # Indicates if this is a 'let' declaration
     identifier*: string
     typeAnnotation*: Type
     initializer*: Option[Node]
-    annotations*: seq[Annotation]
-
-  LetDeclNode* = object
-    isPublic*: bool
-    identifier*: string
-    typeAnnotation*: Type
-    initializer*: Option[Node]
-    annotations*: seq[Annotation]
 
   FunDeclNode* = object
     identifier*: string
@@ -70,7 +62,6 @@ type
     returnType*: Type
     body*: Option[Node]
     isPublic*: bool
-    annotations*: seq[Annotation]
 
   ParameterNode* = object
     identifier*: string
@@ -136,30 +127,18 @@ type
   BoolLiteralNode* = object
     value*: bool
 
-  CommentLiteralNode* = object
-    value*: string
-
   # Types
   PrimitiveTypeNode* = object
     kind*: TokenKind
 
-  # Annotations
-  AnnotationArgNode* = object
-    name*: string
-    value*: Option[Node]
-
-  Annotation* = object
-    name*: string
-    args*: seq[AnnotationArgNode]
-
   # Main Node type
   Node* = ref object
     pos*: Position # Source position for error reporting
-    `type`*: Type # Type of the node, void for statements
+    annotations*: Annotations
+    comments*: seq[string]
     case kind*: NodeKind
     of NkModule: moduleNode*: ModuleNode
     of NkVarDecl: varDeclNode*: VarDeclNode
-    of NkLetDecl: letDeclNode*: LetDeclNode
     of NkFunDecl: funDeclNode*: FunDeclNode
     of NkBlockStmt: blockStmtNode*: BlockStmtNode
     of NkExprStmt: exprStmtNode*: ExprStmtNode
@@ -181,43 +160,8 @@ type
     of NkBoolLiteral: boolLiteralNode*: BoolLiteralNode
     of NkNilLiteral, NkNop: discard
     of NkType: typeNode*: Type
-    of NkCommentLiteral: commentLiteralNode*: CommentLiteralNode
 
 # Node constructors
 proc newModule*(pos: Position, statements: seq[Node]): Node =
   Node(kind: NkModule, pos: pos, moduleNode: ModuleNode(statements: statements))
-
-# Annotation helper functions
-proc hasAnnotation*(annotations: seq[Annotation], name: string): bool =
-  ## Checks if a specific annotation exists in the given annotations list
-  for ann in annotations:
-    if ann.name == name:
-      return true
-  return false
-
-proc getAnnotation*(annotations: seq[Annotation], name: string): Option[Annotation] =
-  ## Gets a specific annotation from the annotations list if it exists
-  for ann in annotations:
-    if ann.name == name:
-      return some(ann)
-  return none(Annotation)
-
-proc getAnnotationArg*(annotation: Annotation, name: string): Option[AnnotationArgNode] =
-  ## Gets a specific argument from an annotation if it exists
-  for arg in annotation.args:
-    if arg.name == name:
-      return some(arg)
-  return none(AnnotationArgNode)
-
-proc getAnnotationArgValue*(annotations: seq[Annotation], annotationName, argName: string): Option[Node] =
-  ## Gets a specific annotation argument's value if both the annotation and argument exist
-  let annOpt = getAnnotation(annotations, annotationName)
-  if annOpt.isNone:
-    return none(Node)
-    
-  let argOpt = getAnnotationArg(annOpt.get, argName)
-  if argOpt.isNone or argOpt.get.value.isNone:
-    return none(Node)
-    
-  return argOpt.get.value
 

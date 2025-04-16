@@ -32,16 +32,19 @@ proc areTypesCompatible(checker: TypeChecker, expected: Type, actual: Type,
   if expected == actual:
     return true
   
-  # Both are from the same numeric family
-  if (isIntFamily(expected) and isIntFamily(actual)) or
-     (isFloatFamily(expected) and isFloatFamily(actual)) or
-     (isUIntFamily(expected) and isUIntFamily(actual)):
-    return true
-  
   # Special case: nil is compatible with pointer types
   if actual.kind == TkMeta and actual.metaKind == MkUnresolved and actual.name == "nil":
-    # TODO: check if expected is a pointer type
     # For now, just return true for any nil assignment (to be refined)
+    return true
+
+  if actual.kind == TkMeta and actual.metaKind == MkIntInfer and isIntFamily(expected):
+    # Allow int inference for int family types
+    return true
+  if actual.kind == TkMeta and actual.metaKind == MkFloatInfer and isFloatFamily(expected):
+    # Allow float inference for float family types
+    return true
+  if actual.kind == TkMeta and actual.metaKind == MkUIntInfer and isUIntFamily(expected):
+    # Allow uint inference for uint family types
     return true
   
   # Types are not compatible
@@ -65,19 +68,6 @@ proc analyzeTypeChecking*(checker: TypeChecker, scope: Scope, node: Node) =
       let inferencer = newTypeInferencer(checker.fileInfo)
       let initType = inferExpressionType(inferencer, scope, initExpr)
       discard areTypesCompatible(checker, varDecl.typeAnnotation, initType, node.pos)
-      
-      # Process the initializer expression
-      analyzeTypeChecking(checker, scope, initExpr)
-  
-  of NkLetDecl:
-    # Check type of initializer against constant type
-    let letDecl = node.letDeclNode
-    if letDecl.initializer.isSome:
-      # Verify that the initializer type matches the constant type
-      let initExpr = letDecl.initializer.get()
-      let inferencer = newTypeInferencer(checker.fileInfo)
-      let initType = inferExpressionType(inferencer, scope, initExpr)
-      discard areTypesCompatible(checker, letDecl.typeAnnotation, initType, node.pos)
       
       # Process the initializer expression
       analyzeTypeChecking(checker, scope, initExpr)
@@ -298,5 +288,5 @@ proc analyzeTypeChecking*(checker: TypeChecker, scope: Scope, node: Node) =
   
   # Leaf nodes - no further processing needed
   of NkIdentifier, NkIntLiteral, NkUIntLiteral, NkFloatLiteral, NkStringLiteral, 
-     NkCStringLiteral, NkCharLiteral, NkBoolLiteral, NkNilLiteral, NkType, NkCommentLiteral, NkNop:
+     NkCStringLiteral, NkCharLiteral, NkBoolLiteral, NkNilLiteral, NkType, NkNop:
     discard

@@ -1,26 +1,38 @@
-#[external(header="stdio.h", name="printf")]
+// We will include the C standard library to use printf
+// To include the stdio library, we need to use the #[include] annotation
+#[include(from="<stdio.h>", name="printf")]
+/*
+ _ is an especial case of identifier, only _ is allowed any other identifier that starts with _ is not allowed
+*/
 fun printf(format: CString, _: CVarArgs)
 
 pub let c: Int32 = 43
+let d = 44
 
+// Main function can have any name
+// but must be annotated with #[entrypoint]
 #[entrypoint]
 pub fun main(): Int32 {
 
+  // this function can be used only in the main function
   fun printInt(i: Int32) {
     // Print an integer using printf
     printf(c"%d\n", i)
   }
 
+  // Here we use a c string literal
+  // The c prefix indicates that this is a C string literal
   printf(c"Hello, World!\n")
 
   // test math
   let a: Int32 = c * 2
   let b = 8 + a
-  printInt(b)
+  printInt(b * n87())
+  //printInt(d)
 
   return 0
 }
 
-{
-  var a = 0
+fun n87(): Int32 {
+  return 87
 }

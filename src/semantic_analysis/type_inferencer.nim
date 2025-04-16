@@ -274,8 +274,7 @@ proc inferExpressionType*(inferencer: TypeInferencer, scope: Scope, node: Node):
     # Direct type node, just return the type
     result = node.typeNode
   
-  of NkVarDecl, NkLetDecl, NkFunDecl, NkBlockStmt, NkExprStmt, NkReturnStmt, NkModule, 
-     NkCommentLiteral, NkNop:
+  of NkVarDecl, NkFunDecl, NkBlockStmt, NkExprStmt, NkReturnStmt, NkModule, NkNop:
     # These are not expressions
     inferencer.inferenceError(node.pos, "Internal error: trying to infer type of non-expression")
     result = Type(kind: TkMeta, metaKind: MkResolveError, name: "non_expression")
@@ -324,31 +323,6 @@ proc analyzeTypeInference*(inferencer: TypeInferencer, scope: Scope, node: Node)
     # Process initializer
     if varDecl.initializer.isSome:
       analyzeTypeInference(inferencer, scope, varDecl.initializer.get())
-  
-  of NkLetDecl:
-    # Handle constant declarations that need type inference
-    let letDecl = node.letDeclNode
-    
-    # Only infer if type is MkToInfer
-    if letDecl.typeAnnotation.kind == TkMeta and letDecl.typeAnnotation.metaKind == MkToInfer:
-      if letDecl.initializer.isNone:
-        # In this phase is not an error, yet
-        discard
-      else:
-        # Infer type from initializer
-        let inferredType = inferExpressionType(inferencer, scope, letDecl.initializer.get())
-        
-        # Update both the AST node and the symbol
-        let symbolOpt = scope.findSymbol(letDecl.identifier, node.pos)
-        if symbolOpt.isSome:
-          symbolOpt.get().varType = inferredType
-          node.letDeclNode.typeAnnotation = inferredType
-        else:
-          inferencer.inferenceError(node.pos, "Internal error: symbol '" & letDecl.identifier & "' not found in scope")
-    
-    # Process initializer
-    if letDecl.initializer.isSome:
-      analyzeTypeInference(inferencer, scope, letDecl.initializer.get())
   
   of NkAssignment:
     # For assignments, we need to infer the right side and possibly update the left variable's type
@@ -430,5 +404,5 @@ proc analyzeTypeInference*(inferencer: TypeInferencer, scope: Scope, node: Node)
   
   # Literals already have known types, no inference needed
   of NkIntLiteral, NkIdentifier, NkUIntLiteral, NkFloatLiteral, NkStringLiteral, NkCStringLiteral, NkCharLiteral, 
-     NkBoolLiteral, NkNilLiteral, NkType, NkCommentLiteral, NkNop:
+     NkBoolLiteral, NkNilLiteral, NkType, NkNop:
     discard

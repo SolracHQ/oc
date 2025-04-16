@@ -4,27 +4,28 @@ OverC is a programming language that acts as a transpiler to C, providing a mode
 
 ## Overview
 
-OverC allows developers to write code in a more expressive syntax while still having access to C's ecosystem and performance. The language transpile directly to C code, meaning it can be used anywhere C is supported.
+OverC allows developers to write code in a more expressive syntax while still having access to C's ecosystem and performance. The language transpiles directly to C code, meaning it can be used anywhere C is supported.
 
 ## Basic Syntax
 
 ### Hello World Example
 
 ```overc
-pub fun main(): Int {
+#[entrypoint]
+pub fun main(): Int32 {
   let hello: String = "Hello World"
-  printf("%s\n", CString(hello))
+  printf(c"%s\n", hello)
   return 0
 }
 ```
 
 ### External Function Bindings
 
-Use the `#[extern]` attribute to bind to external C functions:
+Use the `#[include]` annotation to bind to external C functions:
 
 ```overc
-#[extern(header="<stdio.h>", name="printf")]
-fun printf(format: *Char, args: CVarArgs)
+#[include(from="<stdio.h>", name="printf")]
+fun printf(format: CString, _: CVarArgs)
 ```
 
 ## Data Types
@@ -82,16 +83,31 @@ pub fun greet(name: String) {
 }
 ```
 
+## Annotations
+
+OverC supports annotations for statements, variables, and functions. For example:
+
+```overc
+#[entrypoint]
+pub fun main(): Int32 {
+  // ...existing code...
+}
+```
+
+## Identifier Rules
+
+Identifiers cannot start with an underscore (`_`) to avoid conflicts with mangled symbols.
+
 ## Complete Example
 
 ```overc
-#[extern(header="<stdio.h>", name="printf")]
-fun printf(format: *Char, args: CVarArgs)
+#[include(from="<stdio.h>", name="printf")]
+fun printf(format: CString, _: CVarArgs)
 
 #[entrypoint]
-pub fun main(): Int {
-  var number: Int = 8
-  printf("%d\n", number)
+pub fun main(): Int32 {
+  var number: Int32 = 8
+  printf(c"%d\n", number)
   return 0
 }
 ```

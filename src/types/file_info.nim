@@ -10,3 +10,6 @@ proc newFileInfo*(path: string): FileInfo =
 
 proc name*(f: FileInfo): string =
   result = f.path.splitFile().name
+
+proc absPath*(f: FileInfo): string =
+  result = f.path.absolutePath()

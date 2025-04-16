@@ -31,11 +31,6 @@ proc analyzeReachability*(checker: ReachabilityChecker, scope: Scope, node: Node
     # Check initializer if present
     if node.varDeclNode.initializer.isSome:
       analyzeReachability(checker, scope, node.varDeclNode.initializer.get)
-      
-  of NkLetDecl:
-    # Check initializer if present
-    if node.letDeclNode.initializer.isSome:
-      analyzeReachability(checker, scope, node.letDeclNode.initializer.get)
     
   of NkFunDecl:
     # Check function body if present
@@ -113,5 +108,5 @@ proc analyzeReachability*(checker: ReachabilityChecker, scope: Scope, node: Node
     
   # Literal nodes don't involve variables
   of NkIntLiteral, NkUIntLiteral, NkFloatLiteral, NkStringLiteral, NkCStringLiteral, NkCharLiteral, 
-     NkBoolLiteral, NkNilLiteral, NkType, NkCommentLiteral, NkNop:
+     NkBoolLiteral, NkNilLiteral, NkType, NkNop:
     discard

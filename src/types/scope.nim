@@ -11,9 +11,9 @@ type
     BlockScope # Represents the scope of a block (e.g., if, while)
 
   SymbolKind* = enum
-    Variable # Represents a variable
-    Function # Represents a function
     Type # Represents a type
+    Function # Represents a function
+    Variable # Represents a variable
 
   Symbol* = ref object
     name*: string
@@ -39,7 +39,7 @@ type
     name*: string
 
 proc newScope*(kind: ScopeKind, parent: Scope, name: string): Scope =
-  result = Scope( kind: kind, parent: parent, name: name)
+  result = Scope(kind: kind, parent: parent, name: name)
   if parent != nil:
     if parent.children.hasKey(name):
       raise newException(ValueError, "Scope already exists: " & name)
@@ -84,21 +84,24 @@ proc findSymbol*(scope: Scope, name: string, at: Position): Option[Symbol] =
         return some(symbol)
       elif at >= symbol.node.pos:
         return some(symbol)
-    
+
     # Determine if we need to skip scopes
     if not skipToModule and currentScope.kind == FunctionScope:
       skipToModule = true
-    
+
     # Get next scope to check based on our rules
     currentScope = currentScope.parent
-    
+
     # If skipping to module, skip all non-module scopes in one go
     while skipToModule and currentScope != nil and currentScope.kind != ModuleScope:
       currentScope = currentScope.parent
-  
+
   # Symbol not found
   return none(Symbol)
 
 proc isReadOnly*(symbol: Symbol): bool =
-  ## Check if the symbol is read-only
-  result = symbol.kind == Variable and symbol.node.kind == NkLetDecl
+  ## Check if a symbol is read-only
+  ## Only variables can be read-only
+  result =
+    symbol.kind == Variable and symbol.node.kind == NkVarDecl and
+    symbol.node.varDeclNode.isReadOnly

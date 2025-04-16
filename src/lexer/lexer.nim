@@ -78,6 +78,7 @@ proc scanString(lexer: var Lexer) =
   discard lexer.advance() # Consume the closing "
   let stringValue = lexer.source()[lexer.start + 1 ..< lexer.current - 1]
   addToken(lexer, TkStringLit, stringValue)
+  lexer.tokens[^1].stringValue = stringValue
 
 proc scanNumber(lexer: var Lexer) =
   ## Scan a number literal

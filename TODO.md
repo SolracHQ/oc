@@ -2,10 +2,17 @@
 
 ## High Priority
 
-- [ ] **Code Generation Fixes**
-  - [ ] Fix repeated header files when multiple external functions use the same header file
-  - [ ] Fix weird code generation artifacts (unnecessary semicolons after newlines)
-  - [ ] Improve generated C code quality and readability
+- [x] **Code Generation Fixes**
+  - [x] Fix repeated header files when multiple external functions use the same header file
+  - [x] Fix weird code generation artifacts (unnecessary semicolons after newlines)
+  - [x] Improve generated C code quality and readability
+
+- [x] **Functional Compiler**
+
+- [x] **Improve Pipeline**
+  - [x] Add intermediate cAST step between language AST and code generation
+  - [x] Move all text generation to code generator (no logic)
+  - [x] Move all data transformation to transpiler (no text generation)
 
 - [ ] **Type System Improvements**
   - [ ] Enhance type inference to resolve metatypes properly (add additional pass)

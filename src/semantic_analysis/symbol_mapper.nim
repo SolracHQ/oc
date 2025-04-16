@@ -47,25 +47,6 @@ proc initializeTable*(symbolMapper: SymbolMapper, scope: Scope, node: Node) =
     # Process initializer if present
     if varDecl.initializer.isSome:
       initializeTable(symbolMapper, scope, varDecl.initializer.get)
-  of NkLetDecl:
-    # Handle constant declarations
-    let letDecl = node.letDeclNode
-    let letSymbol = Symbol(
-      name: letDecl.identifier,
-      node: node,
-      kind: Variable,
-      varType: letDecl.typeAnnotation,
-      isGlobal: scope.kind == ModuleScope,
-      isInitialized: letDecl.initializer.isSome,
-    )
-
-    if not scope.addSymbol(letDecl.identifier, letSymbol):
-      symbolMapper.symbolMapperError(
-        node.pos, "Symbol '" & letDecl.identifier & "' already defined in this scope"
-      )
-
-    if letDecl.initializer.isSome:
-      initializeTable(symbolMapper, scope, letDecl.initializer.get)
   of NkFunDecl:
     # Handle function declarations
     let funDecl = node.funDeclNode
@@ -129,5 +110,5 @@ proc initializeTable*(symbolMapper: SymbolMapper, scope: Scope, node: Node) =
 
   # Leaf nodes - no further processing needed
   of NkIdentifier, NkIntLiteral, NkUIntLiteral, NkFloatLiteral, NkStringLiteral, NkCStringLiteral, NkCharLiteral,
-      NkBoolLiteral, NkNilLiteral, NkType, NkCommentLiteral, NkNop:
+      NkBoolLiteral, NkNilLiteral, NkType, NkNop:
     discard
