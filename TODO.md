@@ -23,8 +23,12 @@
 
 - [ ] **Core Language Features**
   - [ ] Implement structs
-  - [ ] Add support for pointers
+  - [x] Add support for pointers
   - [ ] Introduce arrays
+  - [ ] Implement control flow statements
+    - [ ] If/else conditionals
+    - [ ] While loops
+    - [ ] For loops
   - [ ] Design and implement generics via type erasure
   - [ ] Reconsider function calling conventions
 

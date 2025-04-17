@@ -29,6 +29,8 @@ type
     NkFunctionCall
     NkIdentifier
     NkGroupExpr
+    NkAddressOfExpr
+    NkDerefExpr
 
     # Literals
     NkIntLiteral
@@ -105,6 +107,12 @@ type
   GroupNode* = object
     expression*: Node
 
+  AddressOfExprNode* = object
+    operand*: Node
+
+  DerefExprNode* = object
+    operand*: Node
+
   # Literals
   IntLiteralNode* = object
     value*: int
@@ -151,6 +159,8 @@ type
     of NkFunctionCall: functionCallNode*: FunctionCallNode
     of NkIdentifier: identifierNode*: IdentifierNode
     of NkGroupExpr: groupNode*: GroupNode
+    of NkAddressOfExpr: addressOfExprNode*: AddressOfExprNode
+    of NkDerefExpr: derefExprNode*: DerefExprNode
     of NkIntLiteral: intLiteralNode*: IntLiteralNode
     of NkUIntLiteral: uintLiteralNode*: UIntLiteralNode
     of NkFloatLiteral: floatLiteralNode*: FloatLiteralNode

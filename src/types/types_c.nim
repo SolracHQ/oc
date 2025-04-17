@@ -114,6 +114,16 @@ proc toCType*(t: Type): Option[CType] =
     of String: 
       return none(CType) # String type is not implemented yet
     result = some(ctype)
+  of TkPointer:
+    if t.pointerTo.isNil:
+      result = some(CType(kind: CkPointer, ctype: nil))
+    else:
+      var innerCType = new CType
+      let innerCTypeOpt = toCType(t.pointerTo[])
+      if innerCTypeOpt.isNone:
+        return none(CType)
+      innerCType[] = innerCTypeOpt.get()
+      result = some(CType(kind: CkPointer, ctype: innerCType))
   of TkMeta:
     case t.metaKind:
     of MkCVarArgs:

@@ -1,0 +1,26 @@
+{
+  "name": "oc-syntax",
+  "displayName": "oc-syntax",
+  "description": "OverC VS Code syntax highlighting",
+  "repository": {"url": "https://github.com/SolracHQ/oc"},
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.99.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [{
+      "id": "over-c",
+      "aliases": ["OverC", "over-c"],
+      "extensions": ["oc"],
+      "configuration": "./language-configuration.json"
+    }],
+    "grammars": [{
+      "language": "over-c",
+      "scopeName": "source.oc",
+      "path": "./syntaxes/over-c.tmLanguage.json"
+    }]
+  }
+}

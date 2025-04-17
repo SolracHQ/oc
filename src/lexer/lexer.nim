@@ -238,6 +238,8 @@ proc scanToken(lexer: var Lexer) =
     addToken(lexer, TkStar)
   of '%':
     addToken(lexer, TkPercent)
+  of '&':
+    addToken(lexer, TkAmpersand)
   of '=':
     if lexer.match('='):
       addToken(lexer, TkEqualEqual)

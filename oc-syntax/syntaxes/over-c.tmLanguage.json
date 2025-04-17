@@ -1,0 +1,105 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "OverC",
+	"patterns": [
+		{ "include": "#comments" },
+		{ "include": "#keywords" },
+		{ "include": "#types" },
+		{ "include": "#literals" },
+		{ "include": "#operators" },
+		{ "include": "#annotations" },
+		{ "include": "#strings" },
+		{ "include": "#char" },
+		{ "include": "#numbers" }
+	],
+	"repository": {
+		"comments": {
+			"patterns": [
+				{
+					"name": "comment.line.double-slash.over-c",
+					"match": "//.*$"
+				},
+				{
+					"name": "comment.block.over-c",
+					"begin": "/\\*",
+					"end": "\\*/"
+				}
+			]
+		},
+		"keywords": {
+			"patterns": [
+				{
+					"name": "keyword.control.over-c",
+					"match": "\\b(if|else|while|for|return|break|continue|fun|let|var|pub|and|or|not)\\b"
+				}
+			]
+		},
+		"types": {
+			"patterns": [
+				{
+					"name": "storage.type.over-c",
+					"match": "\\b(Int|Int8|Int16|Int32|Int64|Int128|UInt|UInt8|UInt16|UInt32|UInt64|Float|Float32|Float64|String|Char|Bool|Void|CString|CVarArgs|VarArgs)\\b"
+				}
+			]
+		},
+		"literals": {
+			"patterns": [
+				{
+					"name": "constant.language.boolean.over-c",
+					"match": "\\b(true|false|nil)\\b"
+				}
+			]
+		},
+		"operators": {
+			"patterns": [
+				{
+					"name": "keyword.operator.over-c",
+					"match": "==|!=|<=|>=|<|>|=|\\+|-|\\*|/|%|!|\\.|,|:|;|\\(|\\)|\\[|\\]|\\{|\\}|&"
+				}
+			]
+		},
+		"annotations": {
+			"patterns": [
+				{
+					"name": "meta.annotation.over-c",
+					"match": "#\\[.*?]"
+				}
+			]
+		},
+		"strings": {
+			"name": "string.quoted.double.over-c",
+			"begin": "\"",
+			"end": "\"",
+			"patterns": [
+				{
+					"name": "constant.character.escape.over-c",
+					"match": "\\\\."
+				}
+			]
+		},
+		"char": {
+			"name": "string.quoted.single.over-c",
+			"begin": "'",
+			"end": "'",
+			"patterns": [
+				{
+					"name": "constant.character.escape.over-c",
+					"match": "\\\\."
+				}
+			]
+		},
+		"numbers": {
+			"patterns": [
+				{
+					"name": "constant.numeric.float.over-c",
+					"match": "\\b[0-9]+\\.[0-9]+([eE][+-]?[0-9]+)?[fF]?\\b"
+				},
+				{
+					"name": "constant.numeric.integer.over-c",
+					"match": "\\b[0-9]+(u|U)?\\b"
+				}
+			]
+		}
+	},
+	"scopeName": "source.oc"
+}

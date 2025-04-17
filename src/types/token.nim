@@ -74,6 +74,7 @@ type
     TkPercent ## %
     TkEqual ## =
     TkBang ## !
+    TkAmpersand ## &
 
     # Composed symbols
     TkEqualEqual ## ==
@@ -180,6 +181,7 @@ proc `$`*(kind: TokenKind): string =
     of TkRBrace: "'}''"
     of TkLAngle: "'<'"
     of TkRAngle: "'>''"
+    of TkAmpersand: "'&'"
     of TkHash: "'#'"
     of TkInt: "'Int'"
     of TkInt8: "'Int8'"

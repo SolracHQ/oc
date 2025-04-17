@@ -256,6 +256,30 @@ proc parseMemberAccess(parser: var Parser): Node =
       )
       discard parser.consume({TKRParen}, "Expect ')' after function arguments.")
 
+proc parseAddress(parser: var Parser): Node =
+  ## Parse address-of operator (&)
+  if parser.match({TKAmpersand}):
+    let token = parser.peek(-1).get()
+    let operand = parser.parseAddress()
+    return Node(
+      kind: NkAddressOfExpr,
+      pos: token.pos,
+      addressOfExprNode: AddressOfExprNode(operand: operand),
+    )
+  return parser.parseMemberAccess()
+
+proc parseDereference(parser: var Parser): Node =
+  ## Parse dereference operator (*)
+  if parser.match({TKStar}):
+    let token = parser.peek(-1).get()
+    let operand = parser.parseDereference()
+    return Node(
+      kind: NkDerefExpr,
+      pos: token.pos,
+      derefExprNode: DerefExprNode(operand: operand),
+    )
+  return parser.parseAddress()
+
 proc parseUnary(parser: var Parser): Node =
   ## Parse unary expressions (e.g., -x, !x)
   if parser.match({TKMinus, TKBang}):
@@ -267,7 +291,7 @@ proc parseUnary(parser: var Parser): Node =
       pos: token.pos,
       unaryOpNode: UnaryOpNode(operator: operator.kind, operand: operand),
     )
-  return parser.parseMemberAccess()
+  return parser.parseDereference()
 
 proc parseMultiplicative(parser: var Parser): Node =
   ## Parse multiplicative expressions (e.g., x * y, x / y)
@@ -364,6 +388,15 @@ proc parseType(parser: var Parser): Type =
   elif parser.match(Primitives + {TkCVarArgs}):
     let token = parser.peek(-1).get()
     return token.`type`
+  elif parser.match({TkStar}):
+    let token = parser.peek(-1).get()
+    let pointerType = parser.parseType()
+    result =
+      Type(
+        kind: TkPointer,
+        pointerTo: new Type
+      )
+    result.pointerTo[] = pointerType
   else:
     parser.parserError("Expect type.")
 

@@ -8,16 +8,22 @@ fun printf(format: CString, _: CVarArgs)
 
 pub let c: Int32 = 43
 let d = 44
+let meta = 36
 
 // Main function can have any name
 // but must be annotated with #[entrypoint]
 #[entrypoint]
-pub fun main(): Int32 {
+fun main(): Int32 {
 
   // this function can be used only in the main function
   fun printInt(i: Int32) {
     // Print an integer using printf
     printf(c"%d\n", i)
+  }
+
+  fun printIntPtr(i: *Int) {
+    // Print an integer using printf
+    printf(c"%d\n", *i)
   }
 
   // Here we use a c string literal
@@ -28,7 +34,9 @@ pub fun main(): Int32 {
   let a: Int32 = c * 2
   let b = 8 + a
   printInt(b * n87())
-  //printInt(d)
+  printIntPtr(&d)
+  // test meta
+  printInt(meta)
 
   return 0
 }

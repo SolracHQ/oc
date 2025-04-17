@@ -105,6 +105,14 @@ proc analyzeReachability*(checker: ReachabilityChecker, scope: Scope, node: Node
     
   of NkGroupExpr:
     analyzeReachability(checker, scope, node.groupNode.expression)
+
+  of NkAddressOfExpr:
+    # Check if the operand is a variable
+    analyzeReachability(checker, scope, node.addressOfExprNode.operand)
+
+  of NkDerefExpr:
+    # Check if the operand is a pointer
+    analyzeReachability(checker, scope, node.derefExprNode.operand)
     
   # Literal nodes don't involve variables
   of NkIntLiteral, NkUIntLiteral, NkFloatLiteral, NkStringLiteral, NkCStringLiteral, NkCharLiteral, 

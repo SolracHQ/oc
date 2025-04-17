@@ -227,6 +227,30 @@ proc transpileNode(transpiler: Transpiler, scope: Scope, node: Node): Option[CNo
           groupNode: ast_c.GroupNode(expression: exprC.get()),
         )
       )
+  of NkAddressOfExpr:
+    let operandC = transpileNode(transpiler, scope, node.addressOfExprNode.operand)
+    if operandC.isNone:
+      return none(CNode)
+    result = some(
+      CNode(
+        kind: CnkAddressOf,
+        pos: node.pos,
+        comments: node.comments,
+        addressOfNode: ast_c.AddressOfNode(operand: operandC.get()),
+      )
+    )
+  of NkDerefExpr:
+    let operandC = transpileNode(transpiler, scope, node.derefExprNode.operand)
+    if operandC.isNone:
+      return none(CNode)
+    result = some(
+      CNode(
+        kind: CnkDereference,
+        pos: node.pos,
+        comments: node.comments,
+        dereferenceNode: ast_c.DereferenceNode(operand: operandC.get()),
+      )
+    )
   of NkIntLiteral:
     result = some(
       CNode(

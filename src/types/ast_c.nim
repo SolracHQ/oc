@@ -34,6 +34,8 @@ type
     CnkIdentifier # Identifier reference
     CnkArrayAccess # Array access
     CnkGroupExpr # Parenthesized expression
+    CnkAddressOf # Address-of operator (&)
+    CnkDereference # Dereference operator (*)
 
     # Literals
     CnkIntLiteral # Integer literal
@@ -133,6 +135,12 @@ type
   GroupNode* = object
     expression*: CNode
 
+  AddressOfNode* = object
+    operand*: CNode
+
+  DereferenceNode* = object
+    operand*: CNode
+
   # Literals
   IntLiteralNode* = object
     value*: int64
@@ -175,6 +183,8 @@ type
     of CnkIdentifier: identifierNode*: IdentifierNode
     of CnkArrayAccess: arrayAccessNode*: ArrayAccessNode
     of CnkGroupExpr: groupNode*: GroupNode
+    of CnkAddressOf: addressOfNode*: AddressOfNode
+    of CnkDereference: dereferenceNode*: DereferenceNode
     of CnkIntLiteral: intLiteralNode*: IntLiteralNode
     of CnkUIntLiteral: uintLiteralNode*: UIntLiteralNode
     of CnkFloatLiteral: floatLiteralNode*: FloatLiteralNode

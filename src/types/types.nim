@@ -1,8 +1,6 @@
-import std/options
-
 type
   TypeKind* = enum
-    TkPrimitive, TkMeta
+    TkPrimitive, TkPointer, TkMeta
   
   Primitive* = enum
     Int, Int8, Int16, Int32, Int64,
@@ -18,9 +16,13 @@ type
     MkIntInfer, MkFloatInfer, MkUIntInfer
 
   Type* = object
+    isConst*: bool # when type is from a constant
+    hasAddress*: bool # when type is from a variable
     case kind*: TypeKind 
     of TkPrimitive:
       primitive*: Primitive
+    of TkPointer:
+      pointerTo*: ref Type
     of TkMeta:
       case metaKind*: MetaKind
       of MkVarArgs, MkCVarArgs, MkToInfer, MkIntInfer, MkFloatInfer, MkUIntInfer:
@@ -30,35 +32,11 @@ type
       of MkType:
         typeRepr*: ref Type
 
-proc getCType*(t: Type): Option[string] =
-  ## Returns the C type representation of a Type
-  case t.kind:
-  of TkPrimitive:
-    case t.primitive:
-    of Int: result = some("Int64")
-    of Int8: result = some("Int8")
-    of Int16: result = some("Int16")
-    of Int32: result = some("Int32")
-    of Int64: result = some("Int64")
-    of UInt: result = some("UInt64")
-    of UInt8: result = some("UInt8")
-    of UInt16: result = some("UInt16")
-    of UInt32: result = some("UInt32")
-    of UInt64: result = some("UInt64")
-    of Float: result = some("Float64")
-    of Float32: result = some("Float32")
-    of Float64: result = some("Float64")
-    of Bool: result = some("Bool")
-    of Char: result = some("Char")
-    of String: result = some("String")
-    of Void: result = some("void")
-    of CString: result = some("char*")
-  of TkMeta:
-    case t.metaKind:
-    of MkCVarArgs:
-      result = some("...") # C varargs
-    else: 
-      result = none(string) # For now, no C type representation for meta types
+proc newPointerType*(t: Type): Type =
+  ## Creates a new pointer type
+  result = Type(kind: TkPointer, pointerTo: new Type)
+  result.pointerTo[] = t
+  result.isConst = t.isConst
 
 proc `==`*(a, b: Type): bool =
   ## Compares two Type objects for equality
@@ -68,6 +46,11 @@ proc `==`*(a, b: Type): bool =
   case a.kind:
   of TkPrimitive:
     result = a.primitive == b.primitive
+  of TkPointer:
+    if a.pointerTo.isNil or b.pointerTo.isNil:
+      result = a.pointerTo.isNil and b.pointerTo.isNil
+    else:
+      result = a.pointerTo[] == b.pointerTo[]
   of TkMeta:
     if a.metaKind != b.metaKind:
       return false
@@ -88,6 +71,11 @@ proc `$`*(t: Type): string =
   case t.kind:
   of TkPrimitive:
     result = $t.primitive
+  of TkPointer:
+    if t.pointerTo.isNil:
+      result = "Pointer(nil)"
+    else:
+      result = "*" & $t.pointerTo[]
   of TkMeta:
     case t.metaKind:
     of MkVarArgs:

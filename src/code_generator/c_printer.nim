@@ -51,7 +51,7 @@ proc cNodeToString*(node: CNode, indent: int = 0): string =
   let ind = repeat(' ', indent)
   let lineInfo =
     if node.pos.file != nil:
-      "#line " & $node.pos.line & "  \"" & absPath(node.pos.file) & "\"\n"
+      ind & "#line " & $node.pos.line & "  \"" & absPath(node.pos.file) & "\"\n"
     else:
       ""
 
@@ -163,6 +163,10 @@ proc cNodeToString*(node: CNode, indent: int = 0): string =
     result = ind & cNodeToString(a.array, 0) & "[" & cNodeToString(a.index, 0) & "]"
   of CnkGroupExpr:
     result = ind & "(" & cNodeToString(node.groupNode.expression, 0) & ")"
+  of CnkAddressOf:
+    result = ind & "&" & cNodeToString(node.addressOfNode.operand, 0)
+  of CnkDereference:
+    result = ind & "*" & cNodeToString(node.dereferenceNode.operand, 0)
   of CnkIntLiteral:
     result = ind & $node.intLiteralNode.value
   of CnkUIntLiteral:

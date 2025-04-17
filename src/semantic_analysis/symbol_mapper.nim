@@ -28,7 +28,9 @@ proc initializeTable*(symbolMapper: SymbolMapper, scope: Scope, node: Node) =
       initializeTable(symbolMapper, scope, stmt)
   of NkVarDecl:
     # Handle variable declarations
-    let varDecl = node.varDeclNode
+    var varDecl = node.varDeclNode
+    varDecl.typeAnnotation.isConst = varDecl.isReadOnly
+    varDecl.typeAnnotation.hasAddress = true
     let varSymbol = Symbol(
       name: varDecl.identifier,
       node: node,
@@ -50,6 +52,13 @@ proc initializeTable*(symbolMapper: SymbolMapper, scope: Scope, node: Node) =
   of NkFunDecl:
     # Handle function declarations
     let funDecl = node.funDeclNode
+
+    # do not allow public functions in inner scopes
+    if funDecl.isPublic and scope.kind != ModuleScope:
+      symbolMapper.symbolMapperError(
+        node.pos, "Public functions are not allowed in inner scopes"
+      )
+
     let functionScope = newScope(FunctionScope, scope, funDecl.identifier)
 
     # Create function symbol
@@ -104,7 +113,7 @@ proc initializeTable*(symbolMapper: SymbolMapper, scope: Scope, node: Node) =
     # Return statements cannot define new symbols
     discard
   of NkAssignment, NkLogicalExpr, NkEqualityExpr, NkComparisonExpr, NkAdditiveExpr,
-      NkMultiplicativeExpr, NkUnaryExpr, NkMemberAccess, NkFunctionCall, NkGroupExpr:
+      NkMultiplicativeExpr, NkUnaryExpr, NkMemberAccess, NkFunctionCall, NkGroupExpr, NkAddressOfExpr, NkDerefExpr:
     # Only statements can define new symbols
     discard
 
