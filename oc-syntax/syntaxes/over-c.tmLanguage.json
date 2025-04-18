@@ -30,7 +30,7 @@
 			"patterns": [
 				{
 					"name": "keyword.control.over-c",
-					"match": "\\b(if|else|while|for|return|break|continue|fun|let|var|pub|and|or|not)\\b"
+					"match": "\\b(if|elif|else|while|for|return|break|continue|fun|let|var|pub|and|or|not)\\b"
 				}
 			]
 		},

@@ -114,7 +114,6 @@ type
   IfBranchNode* = object
     condition*: CNode # Condition for the if branch
     body*: CNode # Body of the if branch
-  
 
   # Expressions
   AssignmentNode* = object

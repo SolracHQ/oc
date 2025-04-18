@@ -144,11 +144,7 @@ proc inferExpressionType*(inferencer: TypeInferencer, scope: Scope, node: Node):
     case node.unaryOpNode.operator
     of TkMinus:
       # For numeric negation/identity, preserve the numeric type
-      if operand.kind == TkPrimitive and
-          operand.primitive in {
-            Int, Int8, Int16, Int32, Int64, UInt, UInt8, UInt16, UInt32, UInt64, Float,
-            Float32, Float64,
-          }:
+      if operand.isIntFamily or operand.isFloatFamily or operand.isUIntFamily:
         result = operand
       else:
         inferencer.inferenceError(

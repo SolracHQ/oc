@@ -22,6 +22,16 @@ fun boolToStr(b: Bool): CString {
   }
 }
 
+fun biggerThan32(n: Int): Int {
+  if(n > 32) {
+    return 1
+  } elif(n < 32) {
+    return -1
+  } else {
+    return 0
+  }
+}
+
 pub let c: Int32 = 43
 let d = 44
 
@@ -56,6 +66,10 @@ fun main(): Int32 {
 
   printf(c"is d == 44: %s\n", boolToStr(d == 44))
   printf(c"is d == 43: %s\n", boolToStr(d == 43))
+
+  printf(c"biggerThan32(43): %ld\n", biggerThan32(43))
+  printf(c"biggerThan32(32): %ld\n", biggerThan32(32))
+  printf(c"biggerThan32(31): %ld\n", biggerThan32(31))
 
   return 0
 }

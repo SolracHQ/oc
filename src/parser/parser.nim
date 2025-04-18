@@ -604,7 +604,8 @@ proc parseIfStmt(parser: var Parser): Node =
   let ifCond = parser.parseExpression()
   discard parser.consume({TKRParen}, "Expect ')' after if condition.")
   let ifBody = parser.parseStatement(false)
-  var branches: seq[IfBranchNode] = @[IfBranchNode(scopeId: randomString(), condition: ifCond, body: ifBody)]
+  var branches: seq[IfBranchNode] =
+    @[IfBranchNode(scopeId: randomString(), condition: ifCond, body: ifBody)]
 
   # Parse zero or more elif branches
   while parser.match({TKElif}):
@@ -613,7 +614,9 @@ proc parseIfStmt(parser: var Parser): Node =
     let elifCond = parser.parseExpression()
     discard parser.consume({TKRParen}, "Expect ')' after elif condition.")
     let elifBody = parser.parseStatement(false)
-    branches.add(IfBranchNode(scopeId: randomString(), condition: elifCond, body: elifBody))
+    branches.add(
+      IfBranchNode(scopeId: randomString(), condition: elifCond, body: elifBody)
+    )
 
   # Optionally parse else branch
   var elseBranch: Option[ElseBranchNode] = none(ElseBranchNode)
@@ -624,7 +627,7 @@ proc parseIfStmt(parser: var Parser): Node =
   return Node(
     kind: NkIfStmt,
     pos: ifToken.pos,
-    ifStmtNode: IfStmtNode(branches: branches, elseBranch: elseBranch)
+    ifStmtNode: IfStmtNode(branches: branches, elseBranch: elseBranch),
   )
 
 proc parseStatement(parser: var Parser, requireNewLine: bool = true): Node =

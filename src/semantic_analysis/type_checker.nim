@@ -229,12 +229,14 @@ proc analyzeTypeChecking*(checker: TypeChecker, scope: Scope, node: Node) =
     for i, branch in node.ifStmtNode.branches:
       let branchScope = scope.children[branch.scopeId]
       let inferencer = newTypeInferencer(checker.fileInfo)
-      let condType =
-        inferExpressionType(inferencer, scope, branch.condition)
+      let condType = inferExpressionType(inferencer, scope, branch.condition)
       if condType.kind != TkPrimitive or condType.primitive != Bool:
         checker.typeCheckError(
           branch.condition.pos,
-          if i == 0: "if" else: "elif" & " condition must be a boolean expression",
+          if i == 0:
+            "if"
+          else:
+            "elif" & " condition must be a boolean expression",
           "but got " & $condType,
         )
       analyzeTypeChecking(checker, branchScope, branch.condition)
