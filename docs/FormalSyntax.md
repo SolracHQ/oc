@@ -16,12 +16,15 @@ Statement      ::= VarDecl
                  | FunDecl
                  | BlockStmt
                  | ExprStmt
+                 | IfStmt
 
 VarDecl        ::= [Annotation] "var" Identifier [":" Type] ["=" Expression] ( ";" | "\n" )
 LetDecl        ::= [Annotation] "let" Identifier [":" Type] ["=" Expression] ( ";" | "\n" )
 FunDecl        ::= [Annotation] "pub"? "fun" Identifier "(" Parameters ")" [":" Type] BlockStmt
 BlockStmt      ::= "{" Statement* "}"
 ExprStmt       ::= Expression ( ";" | "\n" )
+
+IfStmt         ::= "if" "(" Expression ")" Statement ( "elif" "(" Expression ")" Statement )* [ "else" Statement ]
 
 Parameters     ::= (Parameter ("," Parameter)*)? 
 Parameter      ::= Identifier ":" Type

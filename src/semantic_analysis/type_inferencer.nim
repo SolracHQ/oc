@@ -185,24 +185,30 @@ proc inferExpressionType*(inferencer: TypeInferencer, scope: Scope, node: Node):
       result = Type(kind: TkMeta, metaKind: MkResolveError, name: "non_boolean_logical")
     else:
       result = Type(kind: TkPrimitive, primitive: Bool)
-  of NkEqualityExpr, NkComparisonExpr:
-    # Equality and comparison expressions must have matching types
+  of NkEqualityExpr:
+    # Equality expressions always result in Bool, but types must be compatible
     let leftType = inferExpressionType(inferencer, scope, node.binaryOpNode.left)
     let rightType = inferExpressionType(inferencer, scope, node.binaryOpNode.right)
-
-    # Check if the types are exactly the same
-    if leftType.kind == TkPrimitive and rightType.kind == TkPrimitive:
-      if leftType.primitive != rightType.primitive:
-        inferencer.inferenceError(
-          node.pos,
-          "Type mismatch in comparison: " & $leftType.primitive &
-            " cannot be compared with " & $rightType.primitive,
-        )
+    result = Type(kind: TkPrimitive, primitive: Bool)
+  of NkComparisonExpr:
+    # Comparison expressions require matching types or compatible meta-inferred types
+    let leftType = inferExpressionType(inferencer, scope, node.binaryOpNode.left)
+    let rightType = inferExpressionType(inferencer, scope, node.binaryOpNode.right)
+    # Allow if both are the same meta-inferred family
+    if leftType == rightType:
+      result = Type(kind: TkPrimitive, primitive: Bool)
+    elif (isIntFamily(leftType) and isIntFamily(rightType)) or
+        (isFloatFamily(leftType) and isFloatFamily(rightType)) or
+        (isUIntFamily(leftType) and isUIntFamily(rightType)):
       result = Type(kind: TkPrimitive, primitive: Bool)
     else:
-      inferencer.inferenceError(node.pos, "Type mismatch in comparison")
-      result = Type(kind: TkPrimitive, primitive: Bool)
-        # Still return bool, but we've logged the error
+      inferencer.inferenceError(
+        node.pos,
+        "Type mismatch in comparison: " & $leftType & " cannot be compared with " &
+          $rightType,
+      )
+      result =
+        Type(kind: TkMeta, metaKind: MkResolveError, name: "comparison_type_mismatch")
   of NkAdditiveExpr, NkMultiplicativeExpr:
     # Handle binary operations with inferred and concrete types
     let leftType = inferExpressionType(inferencer, scope, node.binaryOpNode.left)
@@ -302,14 +308,36 @@ proc inferExpressionType*(inferencer: TypeInferencer, scope: Scope, node: Node):
       Type(kind: TkMeta, metaKind: MkResolveError, name: "unsupported_member_access")
   of NkAddressOfExpr:
     # Address-of operator requires a variable
-    let operandType =
-      inferExpressionType(inferencer, scope, node.addressOfExprNode.operand)
+    let operand = node.addressOfExprNode.operand
+    if operand.kind != NkIdentifier:
+      inferencer.inferenceError(node.pos, "Address-of operator requires variable")
+      result =
+        Type(kind: TkMeta, metaKind: MkResolveError, name: "address_of_non_variable")
+    let symbol = scope.findSymbol(operand.identifierNode.name, node.pos)
+    if symbol.isNone:
+      inferencer.inferenceError(
+        node.pos,
+        "Cannot take address of undeclared identifier '" & operand.identifierNode.name &
+          "'",
+      )
+      result =
+        Type(kind: TkMeta, metaKind: MkResolveError, name: "address_of_undeclared")
+    else:
+      # Check if the symbol is a variable
+      if symbol.get().kind != Variable:
+        inferencer.inferenceError(
+          node.pos,
+          "Cannot take address of non-variable '" & operand.identifierNode.name & "'",
+        )
+        result =
+          Type(kind: TkMeta, metaKind: MkResolveError, name: "address_of_non_variable")
+    let operandType = inferExpressionType(inferencer, scope, operand)
     if operandType.kind == TkMeta:
       inferencer.inferenceError(node.pos, "Cannot take address of non-variable")
       result =
         Type(kind: TkMeta, metaKind: MkResolveError, name: "address_of_non_variable")
     else:
-      result = newPointerType(operandType)
+      result = newPointerType(operandType, symbol.get().isReadOnly)
   of NkDerefExpr:
     # Dereference operator requires a pointer type
     let operandType = inferExpressionType(inferencer, scope, node.derefExprNode.operand)
@@ -320,10 +348,9 @@ proc inferExpressionType*(inferencer: TypeInferencer, scope: Scope, node: Node):
       result =
         Type(kind: TkMeta, metaKind: MkResolveError, name: "dereference_non_pointer")
   of NkType:
-    # Direct type node, just return the type
     result = node.typeNode
-  of NkVarDecl, NkFunDecl, NkBlockStmt, NkExprStmt, NkReturnStmt, NkModule, NkNop:
-    # These are not expressions
+  of NkVarDecl, NkFunDecl, NkBlockStmt, NkExprStmt, NkReturnStmt, NkModule, NkNop,
+      NkIfStmt:
     inferencer.inferenceError(
       node.pos, "Internal error: trying to infer type of non-expression"
     )
@@ -376,8 +403,6 @@ proc analyzeTypeInference*(inferencer: TypeInferencer, scope: Scope, node: Node)
             )
             return
           # if variable is const make the type const to
-          if varDecl.isReadOnly:
-            inferredType.isConst = true
           inferredType.hasAddress = true
           symbolOpt.get().varType = inferredType
           node.varDeclNode.typeAnnotation = inferredType
@@ -445,6 +470,18 @@ proc analyzeTypeInference*(inferencer: TypeInferencer, scope: Scope, node: Node)
     # Process return statements
     if node.returnStmtNode.expression.isSome:
       analyzeTypeInference(inferencer, scope, node.returnStmtNode.expression.get())
+  of NkIfStmt:
+    # Process both branches of the if statement
+    for branch in node.ifStmtNode.branches:
+      let branchScope = scope.children[branch.scopeId]
+      analyzeTypeInference(inferencer, scope, branch.condition)
+      analyzeTypeInference(inferencer, branchScope, branch.body)
+
+    # Process else branch if present
+    if node.ifStmtNode.elseBranch.isSome:
+      let elseBranch = node.ifStmtNode.elseBranch.get()
+      let elseScope = scope.children[elseBranch.scopeId]
+      analyzeTypeInference(inferencer, elseScope, elseBranch.body)
   of NkLogicalExpr, NkEqualityExpr, NkComparisonExpr, NkAdditiveExpr,
       NkMultiplicativeExpr:
     # For these expressions, infer the type of the left and right operands

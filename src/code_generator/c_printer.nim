@@ -141,6 +141,18 @@ proc cNodeToString*(node: CNode, indent: int = 0): string =
     if node.returnStmtNode.expression.isSome:
       result.add(" " & cNodeToString(node.returnStmtNode.expression.get(), 0))
     result.add(";\n")
+  of CnkIfStmt:
+    let ifs = node.ifStmtNode
+    result = lineInfo
+    for i, branch in ifs.branches:
+      if i == 0:
+        result.add(ind & "if (" & cNodeToString(branch.condition, 0) & ") ")
+      else:
+        result.add(ind & "else if (" & cNodeToString(branch.condition, 0) & ") ")
+      result.add("{\n" & cNodeToString(branch.body, indent + 2) & ind & "}\n")
+    if ifs.elseBranch.isSome:
+      result.add(ind & "else ")
+      result.add("{\n" & cNodeToString(ifs.elseBranch.get(), indent + 2) & ind & "}\n")
   of CnkAssignment:
     let a = node.assignmentNode
     result = ind & cNodeToString(a.lhs, 0) & " = " & cNodeToString(a.rhs, 0) & ";\n"

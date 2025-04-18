@@ -31,7 +31,7 @@ proc newAnalyzer*(fileInfo: FileInfo): Analyzer =
   result.fileInfo = fileInfo
   result.scope = newScope(ModuleScope, nil, fileInfo.name)
   result.module = module
-  
+
   # Initialize specialized analyzers
   result.symbolMapper = newSymbolMapper(fileInfo, result.scope)
   result.reachabilityChecker = newReachabilityChecker(fileInfo)
@@ -48,7 +48,7 @@ proc analyze*(
   # Stage 1: Initialize the symbol table
   initializeTable(analyzer.symbolMapper, analyzer.scope, analyzer.module)
   analyzer.hasError = analyzer.hasError or analyzer.symbolMapper.hasError
-  
+
   # If symbol mapping failed, don't proceed to next stages
   if analyzer.hasError:
     return (analyzer.hasError, analyzer.scope, analyzer.module)
@@ -56,7 +56,7 @@ proc analyze*(
   # Stage 2: Analyze reachability
   analyzeReachability(analyzer.reachabilityChecker, analyzer.scope, analyzer.module)
   analyzer.hasError = analyzer.hasError or analyzer.reachabilityChecker.hasError
-  
+
   # If reachability analysis failed, don't proceed to type inference
   if analyzer.hasError:
     return (analyzer.hasError, analyzer.scope, analyzer.module)
@@ -64,7 +64,7 @@ proc analyze*(
   # Stage 3: Analyze type inference
   analyzeTypeInference(analyzer.typeInferencer, analyzer.scope, analyzer.module)
   analyzer.hasError = analyzer.hasError or analyzer.typeInferencer.hasError
-  
+
   # If type inference failed, don't proceed to type checking
   if analyzer.hasError:
     return (analyzer.hasError, analyzer.scope, analyzer.module)

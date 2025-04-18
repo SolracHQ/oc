@@ -101,7 +101,7 @@ proc synchronize(parser: var Parser) =
 
 # Forward declarations
 proc parseExpression(parser: var Parser): Node
-proc parseStatement(parser: var Parser): Node
+proc parseStatement(parser: var Parser, requireNewLine: bool = true): Node
 proc parseBlockStmt(parser: var Parser): Node
 proc parseType(parser: var Parser): Type
 
@@ -158,7 +158,7 @@ proc parsePrimary(parser: var Parser): Node =
       pos: token.pos,
       charLiteralNode: CharLiteralNode(value: token.lexeme[0]),
     )
-  elif parser.match({TKBoolLit}):
+  elif parser.match({TkTrue, TkFalse}):
     let token = parser.peek(-1).get()
     return Node(
       kind: NkBoolLiteral,
@@ -274,9 +274,7 @@ proc parseDereference(parser: var Parser): Node =
     let token = parser.peek(-1).get()
     let operand = parser.parseDereference()
     return Node(
-      kind: NkDerefExpr,
-      pos: token.pos,
-      derefExprNode: DerefExprNode(operand: operand),
+      kind: NkDerefExpr, pos: token.pos, derefExprNode: DerefExprNode(operand: operand)
     )
   return parser.parseAddress()
 
@@ -389,21 +387,18 @@ proc parseType(parser: var Parser): Type =
     let token = parser.peek(-1).get()
     return token.`type`
   elif parser.match({TkStar}):
-    let token = parser.peek(-1).get()
-    let pointerType = parser.parseType()
-    result =
-      Type(
-        kind: TkPointer,
-        pointerTo: new Type
-      )
-    result.pointerTo[] = pointerType
+    result = newPointerType(parser.parseType(), false)
+  elif parser.match({TokenKind.TkROPointer}):
+    result = newPointerType(parser.parseType(), true)
   else:
+    echo parser.peek().get().kind
     parser.parserError("Expect type.")
 
 proc parseExpressionStmt(parser: var Parser): Node =
   ## Parse an expression statement
   let expr = parser.parseExpression()
-  return Node(kind: NkExprStmt, pos: expr.pos, exprStmtNode: ExprStmtNode(expression: expr))
+  return
+    Node(kind: NkExprStmt, pos: expr.pos, exprStmtNode: ExprStmtNode(expression: expr))
 
 proc parseReturnStmt(parser: var Parser): Node =
   ## Parse a return statement
@@ -525,7 +520,7 @@ proc parseAnnotationProperties(
     discard parser.consume({TKEqual}, "Expect '=' after argument name")
 
     # Parse the argument value (must be a literal)
-    if parser.match({TKIntLit, TKFloatLit, TKStringLit, TKBoolLit, TKNil}):
+    if parser.match({TKIntLit, TKFloatLit, TKStringLit, TKNil}):
       let token = parser.peek(-1).get()
       case token.kind
       of TKIntLit:
@@ -534,8 +529,6 @@ proc parseAnnotationProperties(
         value = some($token.floatValue)
       of TKStringLit:
         value = some($token.stringValue)
-      of TKBoolLit:
-        value = some(token.lexeme)
       of TKNil:
         value = some("nil")
       else:
@@ -604,7 +597,37 @@ proc parseAnnotations(parser: var Parser): Table[string, Annotation] =
     # Clean up new lines
     parser.cleanUpNewLines()
 
-proc parseStatement(parser: var Parser): Node =
+proc parseIfStmt(parser: var Parser): Node =
+  ## Parse an if statement with optional elif and else branches
+  let ifToken = parser.peek(-1).get() # 'if' token already matched
+  discard parser.consume({TKLParen}, "Expect '(' after 'if'.")
+  let ifCond = parser.parseExpression()
+  discard parser.consume({TKRParen}, "Expect ')' after if condition.")
+  let ifBody = parser.parseStatement(false)
+  var branches: seq[IfBranchNode] = @[IfBranchNode(scopeId: randomString(), condition: ifCond, body: ifBody)]
+
+  # Parse zero or more elif branches
+  while parser.match({TKElif}):
+    let elifToken = parser.peek(-1).get()
+    discard parser.consume({TKLParen}, "Expect '(' after 'elif'.")
+    let elifCond = parser.parseExpression()
+    discard parser.consume({TKRParen}, "Expect ')' after elif condition.")
+    let elifBody = parser.parseStatement(false)
+    branches.add(IfBranchNode(scopeId: randomString(), condition: elifCond, body: elifBody))
+
+  # Optionally parse else branch
+  var elseBranch: Option[ElseBranchNode] = none(ElseBranchNode)
+  if parser.match({TKElse}):
+    let elseBody = parser.parseStatement(false)
+    elseBranch = some(ElseBranchNode(scopeId: randomString(), body: elseBody))
+
+  return Node(
+    kind: NkIfStmt,
+    pos: ifToken.pos,
+    ifStmtNode: IfStmtNode(branches: branches, elseBranch: elseBranch)
+  )
+
+proc parseStatement(parser: var Parser, requireNewLine: bool = true): Node =
   ## Parse a statement (flexible preamble: comments, annotations, newlines in any order)
   try:
     var comments: seq[string]
@@ -639,14 +662,17 @@ proc parseStatement(parser: var Parser): Node =
       result = parser.parseReturnStmt()
     elif parser.match({TKLBrace}):
       result = parser.parseBlockStmt()
+    elif parser.match({TKIf}):
+      result = parser.parseIfStmt()
     else:
       result = parser.parseExpressionStmt()
 
     result.annotations = Annotations(annotationsTable)
     result.comments = comments
 
-    if not parser.isAtEnd():
-      discard parser.consume({TKSemicolon, TKNewline}, "Expect ';' or '\\n' after statement.")
+    if not parser.isAtEnd() and requireNewLine:
+      discard
+        parser.consume({TKSemicolon, TKNewline}, "Expect ';' or '\\n' after statement.")
   except PanicMode:
     # Synchronize to recover from errors
     parser.synchronize()

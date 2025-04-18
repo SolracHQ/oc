@@ -2,7 +2,7 @@ import position
 import types
 import std/tables
 
-type 
+type
   TokenKind* = enum
     # Delimiters
     TkNewLine ## New line
@@ -51,7 +51,6 @@ type
     TkStringLit ## String literal
     TkCStringLit ## C-String literal
     TkCharLit ## Char literal
-    TkBoolLit ## Boolean literal
 
     # Keywords
     TkVar ## var
@@ -64,7 +63,11 @@ type
     TkNil ## nil
     TkOr ## or
     TkAnd ## and
+    TkNot ## not
     TkPub ## pub
+    TkIf ## if
+    TkElse ## else
+    TkElif ## elif
 
     # Symbols
     TkPlus ## +
@@ -75,6 +78,7 @@ type
     TkEqual ## =
     TkBang ## !
     TkAmpersand ## &
+    TkROPointer ## ro*
 
     # Composed symbols
     TkEqualEqual ## ==
@@ -101,15 +105,11 @@ type
       stringValue*: string
     of TkCharLit:
       charValue*: char
-    of TkBoolLit:
-      boolValue*: bool
-    of TkInt, TkInt8, TkInt16, TkInt32, TkInt64,
-       TkUInt, TkUInt8, TkUInt16, TkUInt32, TkUInt64,
-       TkFloat, TkFloat32, TkFloat64,
-       TkString, TkChar, TkBool,
-       TkVoid, TkType, TkCString, TkCVarArgs:
+    of TkInt, TkInt8, TkInt16, TkInt32, TkInt64, TkUInt, TkUInt8, TkUInt16, TkUInt32,
+        TkUInt64, TkFloat, TkFloat32, TkFloat64, TkString, TkChar, TkBool, TkVoid,
+        TkCString, TkCVarArgs:
       `type`*: Type
-    else: 
+    else:
       discard
 
 proc newToken*(kind: TokenKind, lexeme: string, pos: Position): Token =
@@ -126,7 +126,11 @@ const Keywords* = {
   "nil": TkNil,
   "or": TkOr,
   "and": TkAnd,
+  "not": TkNot,
   "pub": TkPub,
+  "if": TkIf,
+  "else": TkElse,
+  "elif": TkElif,
 
   # Primitive types
   "Int": TkInt,
@@ -150,14 +154,14 @@ const Keywords* = {
   # Meta types
   "CVarArgs": TkCVarArgs,
   "VarArgs": TkVarArgs,
-  "Type": TkType,
+  "type": TkType,
 }.toTable()
 
-const Primitives* = { TkInt, TkInt8, TkInt16, TkInt32, TkInt64,
-                     TkUInt, TkUInt8, TkUInt16, TkUInt32, TkUInt64,
-                     TkFloat, TkFloat32, TkFloat64,
-                     TkString, TkChar, TkBool,
-                     TkVoid, TkCString, TkCVarArgs }
+const Primitives* = {
+  TkInt, TkInt8, TkInt16, TkInt32, TkInt64, TkUInt, TkUInt8, TkUInt16, TkUInt32,
+  TkUInt64, TkFloat, TkFloat32, TkFloat64, TkString, TkChar, TkBool, TkVoid, TkCString,
+  TkCVarArgs,
+}
 
 proc getIdentKind*(lexeme: string): TokenKind =
   if Keywords.hasKey(lexeme):
@@ -167,78 +171,82 @@ proc getIdentKind*(lexeme: string): TokenKind =
 
 proc `$`*(kind: TokenKind): string =
   ## Converts a token kind to a string representation
-  case kind:
-    of TkNewLine: "'\\n'"
-    of TkDot: "'.'"
-    of TkComma: "','"
-    of TkColon: "':'"
-    of TkSemiColon: "';'"
-    of TkLParen: "'('"
-    of TkRParen: "')'"
-    of TkLBracket: "'['"
-    of TkRBracket: "']'"
-    of TkLBrace: "'{'"
-    of TkRBrace: "'}''"
-    of TkLAngle: "'<'"
-    of TkRAngle: "'>''"
-    of TkAmpersand: "'&'"
-    of TkHash: "'#'"
-    of TkInt: "'Int'"
-    of TkInt8: "'Int8'"
-    of TkInt16: "'Int16'"
-    of TkInt32: "'Int32'"
-    of TkInt64: "'Int64'"
-    of TkUInt: "'UInt'"
-    of TkUInt8: "'UInt8'"
-    of TkUInt16: "'UInt16'"
-    of TkUInt32: "'UInt32'"
-    of TkUInt64: "'UInt64'"
-    of TkFloat: "'Float'"
-    of TkFloat32: "'Float32'"
-    of TkFloat64: "'Float64'"
-    of TkString: "'String'"
-    of TkChar: "'Char'" 
-    of TkBool: "'Bool'"
-    of TkVoid: "'Void'"
-    of TkType: "'Type'"
-    of TkCString: "'CString'"
-    of TkCVarArgs: "'CVarArgs'"
-    of TkVarArgs: "'VarArgs'"
-    of TkIdent: "'Ident'"
-    of TkIntLit: "'IntLit'"
-    of TkUIntLit: "'UIntLit'"
-    of TkFloatLit: "'FloatLit'"
-    of TkStringLit: "'StringLit'"
-    of TkCStringLit: "'CStringLit'"
-    of TkCharLit: "'CharLit'"
-    of TkBoolLit: "'BoolLit'"
-    of TkVar: "'var'"
-    of TkLet: "'let'"
-    of TkFun: "'fun'"
-    of TkConst: "'const'"
-    of TkReturn: "'return'"
-    of TkTrue: "'true'"
-    of TkFalse: "'false'"
-    of TkNil: "'nil'"
-    of TkOr: "'or'"
-    of TkAnd: "'and'"
-    of TkPub: "'pub'"
-    of TkPlus: "'+'"
-    of TkMinus: "'-'"
-    of TkStar: "'*'"
-    of TkSlash: "'/'"
-    of TkPercent: "'%'"
-    of TkEqual: "'='"
-    of TkBang: "'!'"
-    of TkEqualEqual: "'=='"
-    of TkBangEqual: "'!='"
-    of TkBiggerEqual: "'>='"
-    of TkSmallerEqual: "'<='"
-    of TkComment: "'//..'"
+  case kind
+  of TkNewLine: "'\\n'"
+  of TkDot: "'.'"
+  of TkComma: "','"
+  of TkColon: "':'"
+  of TkSemiColon: "';'"
+  of TkLParen: "'('"
+  of TkRParen: "')'"
+  of TkLBracket: "'['"
+  of TkRBracket: "']'"
+  of TkLBrace: "'{'"
+  of TkRBrace: "'}''"
+  of TkLAngle: "'<'"
+  of TkRAngle: "'>''"
+  of TkAmpersand: "'&'"
+  of TkHash: "'#'"
+  of TkInt: "'Int'"
+  of TkInt8: "'Int8'"
+  of TkInt16: "'Int16'"
+  of TkInt32: "'Int32'"
+  of TkInt64: "'Int64'"
+  of TkUInt: "'UInt'"
+  of TkUInt8: "'UInt8'"
+  of TkUInt16: "'UInt16'"
+  of TkUInt32: "'UInt32'"
+  of TkUInt64: "'UInt64'"
+  of TkFloat: "'Float'"
+  of TkFloat32: "'Float32'"
+  of TkFloat64: "'Float64'"
+  of TkString: "'String'"
+  of TkChar: "'Char'"
+  of TkBool: "'Bool'"
+  of TkVoid: "'Void'"
+  of TkType: "'Type'"
+  of TkCString: "'CString'"
+  of TkCVarArgs: "'CVarArgs'"
+  of TkVarArgs: "'VarArgs'"
+  of TkIdent: "'Ident'"
+  of TkIntLit: "'IntLit'"
+  of TkUIntLit: "'UIntLit'"
+  of TkFloatLit: "'FloatLit'"
+  of TkStringLit: "'StringLit'"
+  of TkCStringLit: "'CStringLit'"
+  of TkCharLit: "'CharLit'"
+  of TkVar: "'var'"
+  of TkLet: "'let'"
+  of TkFun: "'fun'"
+  of TkConst: "'const'"
+  of TkReturn: "'return'"
+  of TkTrue: "'true'"
+  of TkFalse: "'false'"
+  of TkNil: "'nil'"
+  of TkOr: "'or'"
+  of TkNot: "'not'"
+  of TkAnd: "'and'"
+  of TkPub: "'pub'"
+  of TkIf: "'if'"
+  of TkElse: "'else'"
+  of TkElif: "'elif'"
+  of TkROPointer: "'ro*'"
+  of TkPlus: "'+'"
+  of TkMinus: "'-'"
+  of TkStar: "'*'"
+  of TkSlash: "'/'"
+  of TkPercent: "'%'"
+  of TkEqual: "'='"
+  of TkBang: "'!'"
+  of TkEqualEqual: "'=='"
+  of TkBangEqual: "'!='"
+  of TkBiggerEqual: "'>='"
+  of TkSmallerEqual: "'<='"
+  of TkComment: "'//..'"
 
 proc toType*(kind: TokenKind): Type =
   ## Converts a token kind to a Type
-  case kind:
+  case kind
   # Integer types
   of TkInt:
     result = Type(kind: TkPrimitive, primitive: Primitive.Int)
@@ -250,7 +258,7 @@ proc toType*(kind: TokenKind): Type =
     result = Type(kind: TkPrimitive, primitive: Primitive.Int32)
   of TkInt64:
     result = Type(kind: TkPrimitive, primitive: Primitive.Int64)
-  
+
   # Unsigned integer types
   of TkUInt:
     result = Type(kind: TkPrimitive, primitive: Primitive.UInt)
@@ -262,7 +270,7 @@ proc toType*(kind: TokenKind): Type =
     result = Type(kind: TkPrimitive, primitive: Primitive.UInt32)
   of TkUInt64:
     result = Type(kind: TkPrimitive, primitive: Primitive.UInt64)
-  
+
   # Float types
   of TkFloat:
     result = Type(kind: TkPrimitive, primitive: Primitive.Float)
@@ -270,7 +278,7 @@ proc toType*(kind: TokenKind): Type =
     result = Type(kind: TkPrimitive, primitive: Primitive.Float32)
   of TkFloat64:
     result = Type(kind: TkPrimitive, primitive: Primitive.Float64)
-  
+
   # Other primitive types
   of TkBool:
     result = Type(kind: TkPrimitive, primitive: Primitive.Bool)
@@ -282,31 +290,31 @@ proc toType*(kind: TokenKind): Type =
     result = Type(kind: TkPrimitive, primitive: Primitive.Void)
   of TkCString:
     result = Type(kind: TkPrimitive, primitive: Primitive.CString)
-    
+
   # Meta types
   of TkVarArgs:
     result = Type(kind: TkMeta, metaKind: MetaKind.MkVarArgs)
   of TkCVarArgs:
     result = Type(kind: TkMeta, metaKind: MetaKind.MkCVarArgs)
-  of TkType:
-    result = Type(kind: TkMeta, metaKind: MetaKind.MkType, typeRepr: (ref Type)(kind: TkMeta, metaKind: MetaKind.MkToInfer))
   else:
     # This branch should never be reached if the function is used correctly
     raise newException(ValueError, "Cannot convert TokenKind " & $kind & " to Type")
 
 proc `$`*(token: Token): string =
   ## Converts a token to a string representation
-  let lexeme = if token.kind == TkNewLine:
-    "'\\n'"
-  elif token.kind == TkComment: "'//..'"
-  else:
-    token.lexeme
-  
-  if token.kind in {TkInt, TkInt8, TkInt16, TkInt32, TkInt64,
-                   TkUInt, TkUInt8, TkUInt16, TkUInt32, TkUInt64,
-                   TkFloat, TkFloat32, TkFloat64,
-                   TkString, TkChar, TkBool,
-                   TkVoid, TkType, TkCString, TkCVarArgs, TkVarArgs}:
+  let lexeme =
+    if token.kind == TkNewLine:
+      "'\\n'"
+    elif token.kind == TkComment:
+      "'//..'"
+    else:
+      token.lexeme
+
+  if token.kind in {
+    TkInt, TkInt8, TkInt16, TkInt32, TkInt64, TkUInt, TkUInt8, TkUInt16, TkUInt32,
+    TkUInt64, TkFloat, TkFloat32, TkFloat64, TkString, TkChar, TkBool, TkVoid, TkType,
+    TkCString, TkCVarArgs, TkVarArgs,
+  }:
     result = "Token(" & lexeme & ", " & $token.kind & ", Type: " & $token.`type` & ")"
   else:
     result = "Token(" & lexeme & ", " & $token.kind & ")"

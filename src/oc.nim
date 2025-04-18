@@ -6,7 +6,9 @@ import std/parseopt
 
 type
   BuildType = enum
-    btDebug, btRelease
+    btDebug
+    btRelease
+
   CliOptions = object
     subcommand: string
     filePath: string
@@ -40,14 +42,20 @@ proc parseCliOptions(): CliOptions =
   while true:
     p.next()
     case p.kind
-    of cmdEnd: break
+    of cmdEnd:
+      break
     of cmdShortOption, cmdLongOption:
       case p.key
-      of "compiler": result.compiler = p.val
-      of "cflags": result.cflags = p.val
-      of "debug": result.buildType = btDebug
-      of "release": result.buildType = btRelease
-      of "static": result.staticLink = true
+      of "compiler":
+        result.compiler = p.val
+      of "cflags":
+        result.cflags = p.val
+      of "debug":
+        result.buildType = btDebug
+      of "release":
+        result.buildType = btRelease
+      of "static":
+        result.staticLink = true
       of "help", "h":
         printHelp()
         quit(0)
@@ -93,9 +101,9 @@ proc main() =
     echo "[oc] $ ", outFile
     let (output, exitCode) = execCmdEx(outFile)
     if exitCode != 0:
-      echo output
+      stdout.write output
       quit(1)
-    echo output
+    stdout.write output
   else:
     printHelp()
     quit(1)

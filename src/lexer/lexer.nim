@@ -2,12 +2,11 @@ import ../types/[position, file_info, token]
 import ../reporter
 import std/strutils
 
-type
-  Lexer* = object
-    pos*: Position
-    start*: int
-    tokens*: seq[Token]
-    hasError*: bool
+type Lexer* = object
+  pos*: Position
+  start*: int
+  tokens*: seq[Token]
+  hasError*: bool
 
 proc source(lexer: var Lexer): string =
   ## Get the source code from the file
@@ -58,13 +57,13 @@ proc match(lexer: var Lexer, expected: char): bool =
   discard lexer.advance()
   return true
 
-proc addToken(lexer: var Lexer, tokenType: TokenKind, text = lexer.source()[lexer.start ..< lexer.current]) =
+proc addToken(
+    lexer: var Lexer,
+    tokenType: TokenKind,
+    text = lexer.source()[lexer.start ..< lexer.current],
+) =
   ## Add a token to the lexer
-  let token = Token(
-    kind: tokenType,
-    lexeme: text,
-    pos: lexer.pos,
-  )
+  let token = Token(kind: tokenType, lexeme: text, pos: lexer.pos)
   lexer.tokens.add(token)
   lexer.start = lexer.current
 
@@ -91,7 +90,7 @@ proc scanNumber(lexer: var Lexer) =
     discard lexer.advance() # Consume the '.'
     while lexer.peek().isDigit():
       discard lexer.advance()
-  
+
   if lexer.peek == 'e' or lexer.peek == 'E':
     isFloat = true
     discard lexer.advance() # Consume the 'e'
@@ -104,7 +103,7 @@ proc scanNumber(lexer: var Lexer) =
       discard lexer.advance()
 
   let numberValue = lexer.source()[lexer.start ..< lexer.current]
-  
+
   # Handle unsigned integer literals with 'u' suffix
   if not isFloat and lexer.peek() == 'u':
     discard lexer.advance() # Consume the 'u'
@@ -119,7 +118,7 @@ proc scanNumber(lexer: var Lexer) =
 
 proc isValidIdentChar(c: char): bool =
   ## Check if a character is valid in an identifier
-  return c in {'a'..'z'} or c in {'A'..'Z'} or (c == '_') or c.isDigit()
+  return c in {'a' .. 'z'} or c in {'A' .. 'Z'} or (c == '_') or c.isDigit()
 
 proc scanIdentifier(lexer: var Lexer) =
   ## Scan an identifier
@@ -168,15 +167,21 @@ proc scanChar(lexer: var Lexer) =
       lexerError(lexer, "Unterminated character literal")
       return
     let escaped = lexer.advance()
-    case escaped:
-      of 'n': value = "\n"
-      of 't': value = "\t"
-      of 'r': value = "\r"
-      of '"': value = "\""
-      of '\'': value = "'"
-      of '\\': value = "\\"
-      else:
-        lexerError(lexer, "Invalid escape sequence")
+    case escaped
+    of 'n':
+      value = "\n"
+    of 't':
+      value = "\t"
+    of 'r':
+      value = "\r"
+    of '"':
+      value = "\""
+    of '\'':
+      value = "'"
+    of '\\':
+      value = "\\"
+    else:
+      lexerError(lexer, "Invalid escape sequence")
   elif lexer.peek() == '\'':
     lexerError(lexer, "Empty character literal")
     return
@@ -194,10 +199,10 @@ proc scanChar(lexer: var Lexer) =
 proc scanToken(lexer: var Lexer) =
   ## Scan a single token
   let c = lexer.advance()
-  case c:
+  case c
   of '"':
     scanString(lexer)
-  of '0'..'9':
+  of '0' .. '9':
     scanNumber(lexer)
   of '_':
     # The only valid identifier starting with '_' is '_'
@@ -205,11 +210,11 @@ proc scanToken(lexer: var Lexer) =
       lexerError(lexer, "Invalid identifier starting with '_'")
       return
     scanIdentifier(lexer)
-  of 'a'..'z', 'A'..'Z':
+  of 'a' .. 'z', 'A' .. 'Z':
     # Check if it's a C-string (c followed by a double quote)
     if c == 'c' and lexer.peek() == '"':
-      lexer.start = lexer.current  # Reset start to after the 'c'
-      discard lexer.advance()  # Consume the '"'
+      lexer.start = lexer.current # Reset start to after the 'c'
+      discard lexer.advance() # Consume the '"'
       scanString(lexer)
       # Override the token type to CStringLit
       let old = lexer.tokens[^1]
@@ -219,6 +224,10 @@ proc scanToken(lexer: var Lexer) =
         pos: old.pos,
         stringValue: old.stringValue,
       )
+    elif c == 'r' and lexer.peek() == 'o' and lexer.peek(1) == '*':
+      discard lexer.advance() # Consume the 'o'
+      discard lexer.advance() # Consume the '*'
+      addToken(lexer, TkROPointer)
     else:
       scanIdentifier(lexer)
   of '/':

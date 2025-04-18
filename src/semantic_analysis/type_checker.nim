@@ -224,6 +224,25 @@ proc analyzeTypeChecking*(checker: TypeChecker, scope: Scope, node: Node) =
   of NkExprStmt:
     # Process expression statements
     analyzeTypeChecking(checker, scope, node.exprStmtNode.expression)
+  of NkIfStmt:
+    # Check both branches of the if statement
+    for i, branch in node.ifStmtNode.branches:
+      let branchScope = scope.children[branch.scopeId]
+      let inferencer = newTypeInferencer(checker.fileInfo)
+      let condType =
+        inferExpressionType(inferencer, scope, branch.condition)
+      if condType.kind != TkPrimitive or condType.primitive != Bool:
+        checker.typeCheckError(
+          branch.condition.pos,
+          if i == 0: "if" else: "elif" & " condition must be a boolean expression",
+          "but got " & $condType,
+        )
+      analyzeTypeChecking(checker, branchScope, branch.condition)
+      analyzeTypeChecking(checker, branchScope, branch.body)
+    if node.ifStmtNode.elseBranch.isSome:
+      let elseBranch = node.ifStmtNode.elseBranch.get
+      let elseScope = scope.children[elseBranch.scopeId]
+      analyzeTypeChecking(checker, elseScope, elseBranch.body)
   of NkLogicalExpr:
     # Check both operands are boolean
     let inferencer = newTypeInferencer(checker.fileInfo)
@@ -339,11 +358,11 @@ proc analyzeTypeChecking*(checker: TypeChecker, scope: Scope, node: Node) =
 
     # Process the operand
     analyzeTypeChecking(checker, scope, node.unaryOpNode.operand)
-
   of NkAddressOfExpr:
     # Check operand type
     let inferencer = newTypeInferencer(checker.fileInfo)
-    let operandType = inferExpressionType(inferencer, scope, node.addressOfExprNode.operand)
+    let operandType =
+      inferExpressionType(inferencer, scope, node.addressOfExprNode.operand)
 
     # Address-of operator requires a variable
     if not operandType.hasAddress:
@@ -355,14 +374,13 @@ proc analyzeTypeChecking*(checker: TypeChecker, scope: Scope, node: Node) =
 
     # Process the operand
     analyzeTypeChecking(checker, scope, node.addressOfExprNode.operand)
-
   of NkDerefExpr:
     # Check operand type
     let inferencer = newTypeInferencer(checker.fileInfo)
     let operandType = inferExpressionType(inferencer, scope, node.derefExprNode.operand)
 
     # Dereference operator requires a pointer type
-    if operandType.kind != TkPointer:
+    if operandType.kind != TkPointer and operandType.kind != TkROPointer:
       checker.typeCheckError(
         node.pos,
         "Dereference operator requires a pointer type",
@@ -371,7 +389,6 @@ proc analyzeTypeChecking*(checker: TypeChecker, scope: Scope, node: Node) =
 
     # Process the operand
     analyzeTypeChecking(checker, scope, node.derefExprNode.operand)
-
   of NkMemberAccess:
     # Process the object
     analyzeTypeChecking(checker, scope, node.memberAccessNode.obj)

@@ -1,10 +1,11 @@
 import std/tables
 import std/options
 
-type 
+type
   Annotation* = object
     name*: string
     properties*: Table[string, Option[string]]
+
   Annotations* = distinct Table[string, Annotation]
 
 proc hasAnnotation*(annotations: Annotations, name: string): bool =
@@ -31,7 +32,9 @@ proc getProperty*(annotation: Annotation, propertyName: string): Option[string] 
   else:
     return none(string)
 
-proc getProperty*(annotation: Option[Annotation], propertyName: string): Option[string] =
+proc getProperty*(
+    annotation: Option[Annotation], propertyName: string
+): Option[string] =
   if annotation.isSome:
     return annotation.get().getProperty(propertyName)
   else:

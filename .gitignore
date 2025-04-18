@@ -2,3 +2,5 @@
 oc
 .oc-cache
 **/.vscode
+nimble.develop
+nimble.paths

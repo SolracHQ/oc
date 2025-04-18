@@ -112,6 +112,31 @@ proc transpileNode(transpiler: Transpiler, scope: Scope, node: Node): Option[CNo
           returnStmtNode: ast_c.ReturnStmtNode(expression: none(CNode)),
         )
       )
+  of NkIfStmt:
+    var cBranches: seq[ast_c.IfBranchNode] = @[]
+    for branch in node.ifStmtNode.branches:
+      let branchScope = scope.children[branch.scopeId]
+      let condC = transpileNode(transpiler, branchScope, branch.condition)
+      let bodyC = transpileNode(transpiler, branchScope, branch.body)
+      if condC.isNone or bodyC.isNone:
+        return none(CNode)
+      cBranches.add(ast_c.IfBranchNode(condition: condC.get(), body: bodyC.get()))
+    var cElse: Option[CNode] = none(CNode)
+    if node.ifStmtNode.elseBranch.isSome:
+      let elseB = node.ifStmtNode.elseBranch.get()
+      let elseScope = scope.children[elseB.scopeId]
+      let elseBodyC = transpileNode(transpiler, elseScope, elseB.body)
+      if elseBodyC.isNone:
+        return none(CNode)
+      cElse = some(elseBodyC.get())
+    result = some(
+      CNode(
+        kind: CnkIfStmt,
+        pos: node.pos,
+        comments: node.comments,
+        ifStmtNode: ast_c.IfStmtNode(branches: cBranches, elseBranch: cElse),
+      )
+    )
   of NkAssignment:
     let lhsSym = scope.findSymbol(node.assignmentNode.identifier, node.pos)
     if lhsSym.isNone:
@@ -309,8 +334,12 @@ proc transpileNode(transpiler: Transpiler, scope: Scope, node: Node): Option[CNo
     )
   of NkNilLiteral:
     result = some(CNode(kind: CnkNullLiteral, pos: node.pos, comments: node.comments))
-  of NkType, NkNop:
-    discard # Types and nops are not emitted
+  of NkType:
+    transpiler.transpilerError(
+      "Type are not values in OverC", node.pos, "Cannot use type as value"
+    )
+  of NkNop:
+    return none(CNode)
 
 proc transpileFunction(
     transpiler: Transpiler,
@@ -464,18 +493,10 @@ proc transpileVariable(
   let isVolatile = variable.node.annotations["volatile"].isSome()
   let isConst = variable.node.varDeclNode.isReadOnly
   let initializer =
-    if declarationOnly or isExtern:
+    if declarationOnly or isExtern or variable.node.varDeclNode.initializer.isNone:
       none(CNode)
     else:
       let init = variable.node.varDeclNode.initializer
-      if init.isNone:
-        transpilerError(
-          transpiler,
-          "Variable initializer is None for variable: " & name,
-          variable.node.pos,
-          "Variable must have an initializer",
-        )
-        return none(CNode)
       let initNode = transpileNode(transpiler, scope, init.get())
       if initNode.isNone:
         return none(CNode)
@@ -746,9 +767,9 @@ proc transpile*(file: FileInfo): tuple[hasError: bool, hFile: CNode, cFile: CNod
     return (true, nil, nil)
   let globalSymbols = transpiler.getGlobalSymbols(scope)
   let hFile = transpileHFile(transpiler, globalSymbols)
-  if hFile.isNone:
+  if hFile.isNone or transpiler.hasError:
     return (true, nil, nil)
   let cFile = transpileCFile(transpiler, globalSymbols, scope, ast)
-  if cFile.isNone:
+  if cFile.isNone or transpiler.hasError:
     return (true, nil, nil)
   return (false, hFile.get(), cFile.get())

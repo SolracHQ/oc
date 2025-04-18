@@ -29,7 +29,6 @@ proc initializeTable*(symbolMapper: SymbolMapper, scope: Scope, node: Node) =
   of NkVarDecl:
     # Handle variable declarations
     var varDecl = node.varDeclNode
-    varDecl.typeAnnotation.isConst = varDecl.isReadOnly
     varDecl.typeAnnotation.hasAddress = true
     let varSymbol = Symbol(
       name: varDecl.identifier,
@@ -105,7 +104,16 @@ proc initializeTable*(symbolMapper: SymbolMapper, scope: Scope, node: Node) =
     let blockScope = newScope(BlockScope, scope, node.blockStmtNode.blockId)
     for stmt in node.blockStmtNode.statements:
       initializeTable(symbolMapper, blockScope, stmt)
-      
+  of NkIfStmt:
+    # Handle if statements with branches and optional else
+    let ifStmt = node.ifStmtNode
+    for branch in ifStmt.branches:
+      let branchScope = newScope(BlockScope, scope, branch.scopeId)
+      initializeTable(symbolMapper, branchScope, branch.body)
+    if ifStmt.elseBranch.isSome:
+      let elseBranch = ifStmt.elseBranch.get
+      let elseScope = newScope(BlockScope, scope, elseBranch.scopeId)
+      initializeTable(symbolMapper, elseScope, elseBranch.body)
   of NkExprStmt:
     # Expression statements cannot define new symbols
     discard
@@ -113,11 +121,12 @@ proc initializeTable*(symbolMapper: SymbolMapper, scope: Scope, node: Node) =
     # Return statements cannot define new symbols
     discard
   of NkAssignment, NkLogicalExpr, NkEqualityExpr, NkComparisonExpr, NkAdditiveExpr,
-      NkMultiplicativeExpr, NkUnaryExpr, NkMemberAccess, NkFunctionCall, NkGroupExpr, NkAddressOfExpr, NkDerefExpr:
+      NkMultiplicativeExpr, NkUnaryExpr, NkMemberAccess, NkFunctionCall, NkGroupExpr,
+      NkAddressOfExpr, NkDerefExpr:
     # Only statements can define new symbols
     discard
 
   # Leaf nodes - no further processing needed
-  of NkIdentifier, NkIntLiteral, NkUIntLiteral, NkFloatLiteral, NkStringLiteral, NkCStringLiteral, NkCharLiteral,
-      NkBoolLiteral, NkNilLiteral, NkType, NkNop:
+  of NkIdentifier, NkIntLiteral, NkUIntLiteral, NkFloatLiteral, NkStringLiteral,
+      NkCStringLiteral, NkCharLiteral, NkBoolLiteral, NkNilLiteral, NkType, NkNop:
     discard

@@ -2,13 +2,28 @@
 // To include the stdio library, we need to use the #[include] annotation
 #[include(from="<stdio.h>", name="printf")]
 /*
- _ is an especial case of identifier, only _ is allowed any other identifier that starts with _ is not allowed
+  _ is an especial case of identifier, only _ is allowed any other identifier that starts with _ is not allowed
 */
 fun printf(format: CString, _: CVarArgs)
 
+fun printBool(b: Bool) {
+  if(b) {
+    printf(c"true\n")
+  } else {
+    printf(c"false\n")
+  }
+}
+
+fun boolToStr(b: Bool): CString {
+  if(b) {
+    return c"true"
+  } else {
+    return c"false"
+  }
+}
+
 pub let c: Int32 = 43
 let d = 44
-let meta = 36
 
 // Main function can have any name
 // but must be annotated with #[entrypoint]
@@ -21,9 +36,9 @@ fun main(): Int32 {
     printf(c"%d\n", i)
   }
 
-  fun printIntPtr(i: *Int) {
+  fun printIntPtr(i: ro* Int) {
     // Print an integer using printf
-    printf(c"%d\n", *i)
+    printf(c"%ld\n", *i)
   }
 
   // Here we use a c string literal
@@ -35,8 +50,12 @@ fun main(): Int32 {
   let b = 8 + a
   printInt(b * n87())
   printIntPtr(&d)
-  // test meta
-  printInt(meta)
+
+  printBool(true or false)
+  printBool(true and false)
+
+  printf(c"is d == 44: %s\n", boolToStr(d == 44))
+  printf(c"is d == 43: %s\n", boolToStr(d == 43))
 
   return 0
 }

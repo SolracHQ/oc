@@ -37,6 +37,10 @@
 		"types": {
 			"patterns": [
 				{
+					"name": "storage.modifier.readonlypointer.over-c",
+					"match": "\\bro\\*\\s*(?=[A-Za-z_][A-Za-z0-9_]*)"
+				},
+				{
 					"name": "storage.type.over-c",
 					"match": "\\b(Int|Int8|Int16|Int32|Int64|Int128|UInt|UInt8|UInt16|UInt32|UInt64|Float|Float32|Float64|String|Char|Bool|Void|CString|CVarArgs|VarArgs)\\b"
 				}

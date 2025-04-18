@@ -25,6 +25,7 @@ type
     CnkBlockStmt # Block of statements (compound statement)
     CnkExprStmt # Expression statement
     CnkReturnStmt # Return statement
+    CnkIfStmt # If statement
 
     # Expressions
     CnkAssignment # Assignment expression
@@ -106,6 +107,15 @@ type
   ReturnStmtNode* = object
     expression*: Option[CNode] # None for "return;"
 
+  IfStmtNode* = object
+    branches*: seq[IfBranchNode] # List of if branches
+    elseBranch*: Option[CNode] # Optional else branch
+
+  IfBranchNode* = object
+    condition*: CNode # Condition for the if branch
+    body*: CNode # Body of the if branch
+  
+
   # Expressions
   AssignmentNode* = object
     lhs*: CNode # Left-hand side (target)
@@ -176,6 +186,7 @@ type
     of CnkBlockStmt: blockStmtNode*: BlockStmtNode
     of CnkExprStmt: exprStmtNode*: ExprStmtNode
     of CnkReturnStmt: returnStmtNode*: ReturnStmtNode
+    of CnkIfStmt: ifStmtNode*: IfStmtNode
     of CnkAssignment: assignmentNode*: AssignmentNode
     of CnkBinaryExpr: binaryExprNode*: BinaryExprNode
     of CnkUnaryExpr: unaryExprNode*: UnaryExprNode

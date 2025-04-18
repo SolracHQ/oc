@@ -3,7 +3,6 @@ import ../transpiler/transpiler
 import std/os
 import ./c_printer
 
-
 proc generateCode*(file: file_info.FileInfo): bool =
   ## Generates code for the given scope
   # Return true if no errors

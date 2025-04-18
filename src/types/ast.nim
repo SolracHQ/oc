@@ -11,11 +11,12 @@ type
     NkNop
 
     # Statements
-    NkVarDecl  # Now represents both var and let declarations
+    NkVarDecl # Now represents both var and let declarations
     NkFunDecl
     NkBlockStmt
     NkExprStmt
     NkReturnStmt
+    NkIfStmt
 
     # Expressions
     NkAssignment
@@ -53,7 +54,7 @@ type
   # Statements
   VarDeclNode* = object
     isPublic*: bool
-    isReadOnly*: bool  # Indicates if this is a 'let' declaration
+    isReadOnly*: bool # Indicates if this is a 'let' declaration
     identifier*: string
     typeAnnotation*: Type
     initializer*: Option[Node]
@@ -78,6 +79,19 @@ type
 
   ReturnStmtNode* = object
     expression*: Option[Node]
+
+  IfStmtNode* = object
+    branches*: seq[IfBranchNode]
+    elseBranch*: Option[ElseBranchNode]
+
+  IfBranchNode* = object
+    scopeId*: string
+    condition*: Node
+    body*: Node
+
+  ElseBranchNode* = object
+    scopeId*: string
+    body*: Node
 
   # Expressions
   AssignmentNode* = object
@@ -151,6 +165,7 @@ type
     of NkBlockStmt: blockStmtNode*: BlockStmtNode
     of NkExprStmt: exprStmtNode*: ExprStmtNode
     of NkReturnStmt: returnStmtNode*: ReturnStmtNode
+    of NkIfStmt: ifStmtNode*: IfStmtNode
     of NkAssignment: assignmentNode*: AssignmentNode
     of NkLogicalExpr, NkEqualityExpr, NkComparisonExpr, NkAdditiveExpr,
         NkMultiplicativeExpr: binaryOpNode*: BinaryOpNode
@@ -174,4 +189,3 @@ type
 # Node constructors
 proc newModule*(pos: Position, statements: seq[Node]): Node =
   Node(kind: NkModule, pos: pos, moduleNode: ModuleNode(statements: statements))
-

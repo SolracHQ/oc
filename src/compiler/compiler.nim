@@ -3,7 +3,9 @@ import ../code_generator/generator
 import std/osproc
 import std/os
 
-proc compile*(file: file_info.FileInfo, compiler: string = "gcc", cflags: string = ""): bool =
+proc compile*(
+    file: file_info.FileInfo, compiler: string = "gcc", cflags: string = ""
+): bool =
   ## Compiles the generated C file using the specified C compiler and flags
   if not generateCode(file):
     echo "Error: Failed to generate code for ", file.name
