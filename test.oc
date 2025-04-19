@@ -23,13 +23,12 @@ fun boolToStr(b: Bool): CString {
 }
 
 fun biggerThan32(n: Int): Int {
-  if(n > 32) {
+  if(n > 32)
     return 1
-  } elif(n < 32) {
+  elif(n < 32)
     return -1
-  } else {
+  else 
     return 0
-  }
 }
 
 pub let c: Int32 = 43
@@ -38,7 +37,7 @@ let d = 44
 // Main function can have any name
 // but must be annotated with #[entrypoint]
 #[entrypoint]
-fun main(): Int32 {
+fun duck(): Int32 {
 
   // this function can be used only in the main function
   fun printInt(i: Int32) {
@@ -61,6 +60,7 @@ fun main(): Int32 {
   printInt(b * n87())
   printIntPtr(&d)
 
+  // test bool
   printBool(true or false)
   printBool(true and false)
 
@@ -70,6 +70,19 @@ fun main(): Int32 {
   printf(c"biggerThan32(43): %ld\n", biggerThan32(43))
   printf(c"biggerThan32(32): %ld\n", biggerThan32(32))
   printf(c"biggerThan32(31): %ld\n", biggerThan32(31))
+
+  // recursive fibonacci
+  fun fib(n: Int32): Int32 {
+    var fibonacci: Int32 = 0
+    if(n <= 1)
+      fibonacci = n
+    else
+      fibonacci = fib(n - 1) + fib(n - 2)
+    return fibonacci
+  }
+
+  // test fibonacci
+  printInt(fib(40))
 
   return 0
 }

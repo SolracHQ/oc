@@ -82,7 +82,7 @@ proc analyzeTypeChecking*(checker: TypeChecker, scope: Scope, node: Node) =
     let value = node.assignmentNode.value
 
     # Get variable type
-    let symbolOpt = scope.findSymbol(identifier, node.pos)
+    let symbolOpt = scope.findSymbol(identifier, node.pos, Variable)
     if symbolOpt.isNone:
       checker.typeCheckError(
         node.pos,
@@ -91,17 +91,9 @@ proc analyzeTypeChecking*(checker: TypeChecker, scope: Scope, node: Node) =
       )
     else:
       let symbol = symbolOpt.get()
-      if symbol.kind != Variable:
-        checker.typeCheckError(
-          node.pos,
-          "Cannot assign to non-variable '" & identifier & "'",
-          "Defined here " & $symbol.node.pos & "as " & $symbol.kind,
-        )
-      else:
-        # Check type compatibility
-        let inferencer = newTypeInferencer(checker.fileInfo)
-        let valueType = inferExpressionType(inferencer, scope, value)
-        discard areTypesCompatible(checker, symbol.varType, valueType, node.pos)
+      let inferencer = newTypeInferencer(checker.fileInfo)
+      let valueType = inferExpressionType(inferencer, scope, value)
+      discard areTypesCompatible(checker, symbol.varType, valueType, node.pos)
 
     # Process value expression
     analyzeTypeChecking(checker, scope, value)
@@ -113,7 +105,7 @@ proc analyzeTypeChecking*(checker: TypeChecker, scope: Scope, node: Node) =
     # Get function information
     if callee.kind == NkIdentifier:
       let funcName = callee.identifierNode.name
-      let symbolOpt = scope.findSymbol(funcName, callee.pos)
+      let symbolOpt = scope.findSymbol(funcName, callee.pos, {Function, Variable})
 
       if symbolOpt.isNone:
         checker.typeCheckError(
@@ -125,7 +117,7 @@ proc analyzeTypeChecking*(checker: TypeChecker, scope: Scope, node: Node) =
         checker.typeCheckError(
           callee.pos,
           "Cannot call non-function '" & funcName & "'",
-          "Defined here " & $symbolOpt.get().node.pos & "as " & $symbolOpt.get().kind,
+          "Function values will be supported in the future",
         )
       else:
         let funcSymbol = symbolOpt.get()
@@ -194,8 +186,8 @@ proc analyzeTypeChecking*(checker: TypeChecker, scope: Scope, node: Node) =
           let parentScope = currentScope.parent
           if parentScope != nil:
             let funcName = currentScope.name
-            let symbolOpt = parentScope.findSymbol(funcName, node.pos)
-            if symbolOpt.isSome and symbolOpt.get().kind == Function:
+            let symbolOpt = parentScope.findSymbol(funcName, node.pos, Function)
+            if symbolOpt.isSome:
               funcSymbol = symbolOpt.get()
           break
         currentScope = currentScope.parent
@@ -205,6 +197,12 @@ proc analyzeTypeChecking*(checker: TypeChecker, scope: Scope, node: Node) =
         let inferencer = newTypeInferencer(checker.fileInfo)
         let exprType = inferExpressionType(inferencer, scope, returnExpr)
         discard areTypesCompatible(checker, funcSymbol.returnType, exprType, node.pos)
+      else:
+        checker.typeCheckError(
+          node.pos,
+          "Return statement outside of function",
+          "Return statements must be inside a function",
+        )
 
       # Process the return expression
       analyzeTypeChecking(checker, scope, returnExpr)

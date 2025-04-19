@@ -40,7 +40,7 @@ proc parserError(parser: var Parser, error: string) =
 proc randomString(): string =
   ## Generate ids for code blocks
   ## This is a temporary solution, we should use a better way to generate unique ids
-  const mySet = {'a' .. 'z', 'A' .. 'Z', '0' .. '9'}
+  const mySet = {'a' .. 'z', 'A' .. 'Z', '0' .. '9', '_'}
   result = "b" & 12.newSeqWith(sample(mySet)).join("")
 
 proc isAtEnd(parser: var Parser): bool {.inline.} =
@@ -603,7 +603,11 @@ proc parseIfStmt(parser: var Parser): Node =
   discard parser.consume({TKLParen}, "Expect '(' after 'if'.")
   let ifCond = parser.parseExpression()
   discard parser.consume({TKRParen}, "Expect ')' after if condition.")
+  # Clean up new lines after condition
+  parser.cleanUpNewLines()
   let ifBody = parser.parseStatement(false)
+  # Clean up new lines after body
+  parser.cleanUpNewLines()
   var branches: seq[IfBranchNode] =
     @[IfBranchNode(scopeId: randomString(), condition: ifCond, body: ifBody)]
 
@@ -613,7 +617,11 @@ proc parseIfStmt(parser: var Parser): Node =
     discard parser.consume({TKLParen}, "Expect '(' after 'elif'.")
     let elifCond = parser.parseExpression()
     discard parser.consume({TKRParen}, "Expect ')' after elif condition.")
+    # Clean up new lines after condition
+    parser.cleanUpNewLines()
     let elifBody = parser.parseStatement(false)
+    # Clean up new lines after body
+    parser.cleanUpNewLines()
     branches.add(
       IfBranchNode(scopeId: randomString(), condition: elifCond, body: elifBody)
     )

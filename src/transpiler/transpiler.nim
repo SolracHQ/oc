@@ -57,7 +57,7 @@ proc transpileNode(transpiler: Transpiler, scope: Scope, node: Node): Option[CNo
   of NkModule:
     discard # handled at file level
   of NkVarDecl:
-    let variableSymbol = scope.findSymbol(node.varDeclNode.identifier, node.pos)
+    let variableSymbol = scope.findSymbol(node.varDeclNode.identifier, node.pos, Variable)
     if variableSymbol.isNone:
       transpilerError(transpiler, "Cannot find variable declaration in scope", node.pos)
       return none(CNode)
@@ -138,7 +138,7 @@ proc transpileNode(transpiler: Transpiler, scope: Scope, node: Node): Option[CNo
       )
     )
   of NkAssignment:
-    let lhsSym = scope.findSymbol(node.assignmentNode.identifier, node.pos)
+    let lhsSym = scope.findSymbol(node.assignmentNode.identifier, node.pos, Variable)
     if lhsSym.isNone:
       transpilerError(
         transpiler,
@@ -227,7 +227,7 @@ proc transpileNode(transpiler: Transpiler, scope: Scope, node: Node): Option[CNo
       )
     )
   of NkIdentifier:
-    let symOpt = scope.findSymbol(node.identifierNode.name, node.pos)
+    let symOpt = scope.findSymbol(node.identifierNode.name, node.pos, AnySymbol)
     if symOpt.isNone:
       transpilerError(
         transpiler, "Unknown identifier: " & node.identifierNode.name, node.pos

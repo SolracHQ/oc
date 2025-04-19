@@ -19,6 +19,9 @@
   - [ ] Fix type resolution for variables that end with metatypes
   - [ ] Determine approach for type variables/symbols
 
+- [ ] **AST Construction**
+  - [ ] Add helper function to create AST variants to avoid uninitialized members
+
 ## Medium Priority
 
 - [ ] **Core Language Features**
@@ -26,11 +29,16 @@
   - [x] Add support for pointers
   - [ ] Introduce arrays
   - [ ] Implement control flow statements
-    - [ ] If/else conditionals
+    - [x] If/else conditionals
     - [ ] While loops
     - [ ] For loops
   - [ ] Design and implement generics via type erasure
   - [ ] Reconsider function calling conventions
+  - [ ] Add optional parameters
+  - [ ] Add implicit return variable
+  - [ ] Add checker for every path on function to ensure that the function always returns or assigns to result
+  - [ ] Add while and for statement (duplicate, but keep for clarity)
+  - [ ] Consider about do-while statement
 
 - [ ] **Documentation**
   - [ ] Update Formal Syntax documentation to reflect implementation changes
@@ -42,6 +50,10 @@
   - [ ] Improve error messages with more helpful hints
   - [ ] Add better compiler diagnostics
   - [ ] Improve compilation error reporting
+  - [ ] Fix difference on how error is reported in every stage (currently inconsistent: sometimes msg,pos,hint; other times pos,msg,hint; and others just msg,pos)
+  - [ ] Make integration tests
+  - [ ] Make test for each stage
+  - [ ] Improve in-code documentation (currently a mess and confusing during changes)
 
 - [ ] **Design Decisions**
   - [ ] Decide on method call syntax (Nim-like dot syntax vs traditional)

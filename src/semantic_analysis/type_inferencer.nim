@@ -46,7 +46,9 @@ type TypeInferencer* = ref object
   fileInfo*: FileInfo
   hasError*: bool
 
-proc inferenceError*(inferencer: TypeInferencer, position: Position, msg: string) =
+proc inferenceError*(
+    inferencer: TypeInferencer, position: Position, msg: string, hint: string = ""
+) =
   ## Prints an error message for the type inferencer
   logError("TypeInferencer", msg, position)
   inferencer.hasError = true
@@ -83,7 +85,7 @@ proc inferExpressionType*(inferencer: TypeInferencer, scope: Scope, node: Node):
   of NkIdentifier:
     # For identifiers, look up their type in the symbol table
     let identifier = node.identifierNode.name
-    let symbolOpt = scope.findSymbol(identifier, node.pos)
+    let symbolOpt = scope.findSymbol(identifier, node.pos, AnySymbol)
 
     if symbolOpt.isNone:
       inferencer.inferenceError(
@@ -106,7 +108,9 @@ proc inferExpressionType*(inferencer: TypeInferencer, scope: Scope, node: Node):
           result = symbol.varType
       of Function:
         inferencer.inferenceError(
-          node.pos, "Cannot use function '" & identifier & "' as a value"
+          node.pos,
+          "Cannot use function '" & identifier & "' as a value",
+          "This will be supported in the future.",
         )
         result = Type(kind: TkMeta, metaKind: MkResolveError, name: "function_as_value")
       of Type:
@@ -116,7 +120,7 @@ proc inferExpressionType*(inferencer: TypeInferencer, scope: Scope, node: Node):
     let callee = node.functionCallNode.callee
     if callee.kind == NkIdentifier:
       let funcName = callee.identifierNode.name
-      let symbolOpt = scope.findSymbol(funcName, callee.pos)
+      let symbolOpt = scope.findSymbol(funcName, callee.pos, {Function, Variable})
 
       if symbolOpt.isNone:
         inferencer.inferenceError(
@@ -126,7 +130,9 @@ proc inferExpressionType*(inferencer: TypeInferencer, scope: Scope, node: Node):
           Type(kind: TkMeta, metaKind: MkResolveError, name: "undefined_function")
       elif symbolOpt.get().kind != Function:
         inferencer.inferenceError(
-          node.pos, "Cannot call non-function '" & funcName & "'"
+          node.pos,
+          "Cannot call non-function '" & funcName & "'",
+          "callable types are not yet supported",
         )
         result = Type(kind: TkMeta, metaKind: MkResolveError, name: "non_function_call")
       else:
@@ -309,27 +315,17 @@ proc inferExpressionType*(inferencer: TypeInferencer, scope: Scope, node: Node):
       inferencer.inferenceError(node.pos, "Address-of operator requires variable")
       result =
         Type(kind: TkMeta, metaKind: MkResolveError, name: "address_of_non_variable")
-    let symbol = scope.findSymbol(operand.identifierNode.name, node.pos)
+    let symbol = scope.findSymbol(operand.identifierNode.name, node.pos, Variable)
     if symbol.isNone:
       inferencer.inferenceError(
         node.pos,
         "Cannot take address of undeclared identifier '" & operand.identifierNode.name &
           "'",
       )
-      result =
-        Type(kind: TkMeta, metaKind: MkResolveError, name: "address_of_undeclared")
-    else:
-      # Check if the symbol is a variable
-      if symbol.get().kind != Variable:
-        inferencer.inferenceError(
-          node.pos,
-          "Cannot take address of non-variable '" & operand.identifierNode.name & "'",
-        )
-        result =
-          Type(kind: TkMeta, metaKind: MkResolveError, name: "address_of_non_variable")
+      result = Type(kind: TkMeta, metaKind: MkResolveError, name: "address_of_undeclared")
     let operandType = inferExpressionType(inferencer, scope, operand)
     if operandType.kind == TkMeta:
-      inferencer.inferenceError(node.pos, "Cannot take address of non-variable")
+      inferencer.inferenceError(node.pos, "Cannot take address of a variable with a Meta Value", "This should never happen")
       result =
         Type(kind: TkMeta, metaKind: MkResolveError, name: "address_of_non_variable")
     else:
@@ -390,15 +386,8 @@ proc analyzeTypeInference*(inferencer: TypeInferencer, scope: Scope, node: Node)
           else:
             discard
 
-        let symbolOpt = scope.findSymbol(varDecl.identifier, node.pos)
+        let symbolOpt = scope.findSymbol(varDecl.identifier, node.pos, Variable)
         if symbolOpt.isSome:
-          if symbolOpt.get().kind != Variable:
-            inferencer.inferenceError(
-              node.pos,
-              "Cannot assign type to non-variable '" & varDecl.identifier & "'",
-            )
-            return
-          # if variable is const make the type const to
           inferredType.hasAddress = true
           symbolOpt.get().varType = inferredType
           node.varDeclNode.typeAnnotation = inferredType
@@ -417,8 +406,8 @@ proc analyzeTypeInference*(inferencer: TypeInferencer, scope: Scope, node: Node)
     var valueType = inferExpressionType(inferencer, scope, node.assignmentNode.value)
 
     # Look up the variable being assigned to
-    let symbolOpt = scope.findSymbol(identifier, node.pos)
-    if symbolOpt.isSome and symbolOpt.get().kind == Variable:
+    let symbolOpt = scope.findSymbol(identifier, node.pos, Variable)
+    if symbolOpt.isSome:
       let symbol = symbolOpt.get()
 
       # Resolve inferred family types to concrete types if variable has MkToInfer

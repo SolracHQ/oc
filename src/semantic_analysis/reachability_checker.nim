@@ -64,7 +64,7 @@ proc analyzeReachability*(checker: ReachabilityChecker, scope: Scope, node: Node
 
     # Check if variable exists and can be assigned
     let identifier = node.assignmentNode.identifier
-    let symbolOpt = scope.findSymbol(identifier, node.pos)
+    let symbolOpt = scope.findSymbol(identifier, node.pos, Variable)
 
     if symbolOpt.isNone:
       checker.reachabilityError(
@@ -73,11 +73,7 @@ proc analyzeReachability*(checker: ReachabilityChecker, scope: Scope, node: Node
     else:
       let symbol = symbolOpt.get()
 
-      if symbol.kind != Variable:
-        checker.reachabilityError(
-          node.pos, "Cannot assign to non-variable '" & identifier & "'"
-        )
-      elif symbol.isReadOnly and symbol.isInitialized:
+      if symbol.isReadOnly and symbol.isInitialized:
         # Error if trying to assign to readonly variable that's already initialized
         checker.reachabilityError(
           node.pos, "Cannot reassign to readonly variable '" & identifier & "'"
@@ -88,7 +84,7 @@ proc analyzeReachability*(checker: ReachabilityChecker, scope: Scope, node: Node
   of NkIdentifier:
     # Verify variable is initialized before use
     let identifier = node.identifierNode.name
-    let symbolOpt = scope.findSymbol(identifier, node.pos)
+    let symbolOpt = scope.findSymbol(identifier, node.pos, AnySymbol)
 
     if symbolOpt.isNone:
       checker.reachabilityError(node.pos, "Undeclared identifier '" & identifier & "'")

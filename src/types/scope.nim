@@ -38,6 +38,8 @@ type
     children*: Table[string, Scope]
     name*: string
 
+const AnySymbol*: set[SymbolKind] = {Type, Function, Variable}
+
 proc newScope*(kind: ScopeKind, parent: Scope, name: string): Scope =
   result = Scope(kind: kind, parent: parent, name: name)
   if parent != nil:
@@ -60,44 +62,38 @@ proc calculateCanonicalName*(scope: Scope, symbol: Symbol): string =
   result = canonicalName
 
 proc addSymbol*(scope: Scope, name: string, symbol: Symbol): bool =
-  if not scope.symbols.hasKey(name):
-    symbol.name = name
-    symbol.canonicalName = calculateCanonicalName(scope, symbol)
-    scope.symbols[name] = symbol
-    return true
-  result = false
+  # Prevent any name conflict, regardless of SymbolKind
+  if scope.symbols.hasKey(name):
+    return false
+  symbol.name = name
+  symbol.canonicalName = calculateCanonicalName(scope, symbol)
+  scope.symbols[name] = symbol
+  return true
 
-proc findSymbol*(scope: Scope, name: string, at: Position): Option[Symbol] =
+proc findSymbol*(scope: Scope, name: string, at: Position, expected: set[SymbolKind]): Option[Symbol] =
   var currentScope = scope
-  var skipToModule = false
-
+  var requireModuleLevelVariable = false
   while currentScope != nil:
-    # Check if this scope has the symbol
     if currentScope.symbols.hasKey(name):
       let symbol = currentScope.symbols[name]
-      # check if at moment is after the symbol definition or symbol is global (functions and types are global)
-      if symbol.kind == Variable and symbol.isGlobal:
-        return some(symbol)
-      elif symbol.kind == Function:
-        return some(symbol)
-      elif symbol.kind == Type:
-        return some(symbol)
-      elif at >= symbol.node.pos:
-        return some(symbol)
-
-    # Determine if we need to skip scopes
-    if not skipToModule and currentScope.kind == FunctionScope:
-      skipToModule = true
-
-    # Get next scope to check based on our rules
+      if symbol.kind in expected:
+        if symbol.kind == Variable:
+          if requireModuleLevelVariable:
+            if currentScope.kind == ModuleScope:
+              if symbol.isGlobal or at >= symbol.node.pos:
+                return some(symbol)
+          else:
+            if symbol.isGlobal or at >= symbol.node.pos:
+              return some(symbol)
+        else:
+          return some(symbol)
+    if currentScope.kind == FunctionScope:
+      requireModuleLevelVariable = true
     currentScope = currentScope.parent
-
-    # If skipping to module, skip all non-module scopes in one go
-    while skipToModule and currentScope != nil and currentScope.kind != ModuleScope:
-      currentScope = currentScope.parent
-
-  # Symbol not found
   return none(Symbol)
+
+proc findSymbol*(scope: Scope, name: string, at: Position, expected: SymbolKind): Option[Symbol] {.inline.} =
+  result = findSymbol(scope, name, at, {expected})
 
 proc isReadOnly*(symbol: Symbol): bool =
   ## Check if a symbol is read-only
