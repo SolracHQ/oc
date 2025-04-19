@@ -5,52 +5,43 @@ import types_c
 import token
 
 type
-  CNodeKind* = enum
-    # Program structure
-    CnkTranslationUnit # Top-level C/H file
-    CnkNop # No operation
+  CStmtKind* = enum
+    CskTranslationUnit
+    CskNop
+    CskFunctionDecl
+    CskFunctionDef
+    CskVarDecl
+    CskDefine
+    CskInclude
+    CskIfDef
+    CskIfNotDef
+    CskBlockStmt
+    CskExprStmt
+    CskReturnStmt
+    CskIfStmt
 
-    # Declarations
-    CnkFunctionDecl # Function declaration
-    CnkFunctionDef # Function definition
-    CnkVarDecl # Variable declaration (includes const, static, etc.)
-
-    # Preprocessor
-    CnkDefine # #define directive
-    CnkInclude # #include directive
-    CnkIfDef # #ifdef directive
-    CnkIfNotDef # #ifndef directive
-
-    # Statements
-    CnkBlockStmt # Block of statements (compound statement)
-    CnkExprStmt # Expression statement
-    CnkReturnStmt # Return statement
-    CnkIfStmt # If statement
-
-    # Expressions
-    CnkAssignment # Assignment expression
-    CnkBinaryExpr # Binary expression (+, -, *, /, etc.)
-    CnkUnaryExpr # Unary expression (!, -, etc.)
-    CnkFunctionCall # Function call
-    CnkIdentifier # Identifier reference
-    CnkArrayAccess # Array access
-    CnkGroupExpr # Parenthesized expression
-    CnkAddressOf # Address-of operator (&)
-    CnkDereference # Dereference operator (*)
-
-    # Literals
-    CnkIntLiteral # Integer literal
-    CnkUIntLiteral # Unsigned integer literal
-    CnkFloatLiteral # Float literal
-    CnkStringLiteral # String literal
-    CnkCharLiteral # Character literal
-    CnkBoolLiteral # Boolean literal (true/false)
-    CnkNullLiteral # NULL literal
+  CExprKind* = enum
+    CekAssignment
+    CekBinaryExpr
+    CekUnaryExpr
+    CekFunctionCall
+    CekIdentifier
+    CekArrayAccess
+    CekGroupExpr
+    CekAddressOf
+    CekDereference
+    CekIntLiteral
+    CekUIntLiteral
+    CekFloatLiteral
+    CekStringLiteral
+    CekCharLiteral
+    CekBoolLiteral
+    CekNullLiteral
 
   # Program structure
   TranslationUnitNode* = object
-    includes*: HashSet[IncludeNode] #include directives
-    declarations*: seq[CNode] # Function declarations and definitions
+    includes*: HashSet[IncludeNode]
+    declarations*: seq[CStmt]
 
   # Declarations
   FunctionDeclNode* = object
@@ -62,8 +53,8 @@ type
     isInline*: bool
 
   FunctionDefNode* = object
-    declaration*: CNode # Must be CnkFunctionDecl
-    body*: CNode # Must be CnkBlockStmt
+    declaration*: CStmt # Must be CskFunctionDecl
+    body*: CStmt # Must be CskBlockStmt
 
   ParameterNode* = object
     name*: string
@@ -72,83 +63,83 @@ type
   VarDeclNode* = object
     name*: string
     varType*: CType
-    initializer*: Option[CNode]
-    isConst*: bool # const modifier
-    isStatic*: bool # static modifier
-    isExtern*: bool # extern modifier
-    isVolatile*: bool # volatile modifier
+    initializer*: Option[CExpr]
+    isConst*: bool
+    isStatic*: bool
+    isExtern*: bool
+    isVolatile*: bool
 
   # Preprocessor
   DefineNode* = object
     name*: string
-    value*: Option[CNode] # For object-like macros, None for macros without a value
+    value*: Option[CExpr]
 
   IncludeNode* = object
     file*: string
-    isSystem*: bool # System include (angle brackets) or user include (quotes)
+    isSystem*: bool
 
   IfDefNode* = object
     name*: string
-    body*: seq[CNode] # Body of the #ifdef directive
-    elseBody*: seq[CNode] # Body of the #else directive
+    body*: seq[CStmt]
+    elseBody*: seq[CStmt]
 
   IfNotDefNode* = object
     name*: string
-    body*: seq[CNode] # Body of the #ifndef directive
-    elseBody*: seq[CNode] # Body of the #else directive
+    body*: seq[CStmt]
+    elseBody*: seq[CStmt]
 
   # Statements
   BlockStmtNode* = object
-    statements*: seq[CNode]
+    statements*: seq[CStmt]
 
   ExprStmtNode* = object
-    expression*: CNode
+    expression*: CExpr
 
   ReturnStmtNode* = object
-    expression*: Option[CNode] # None for "return;"
+    expression*: Option[CExpr]
 
   IfStmtNode* = object
-    branches*: seq[IfBranchNode] # List of if branches
-    elseBranch*: Option[CNode] # Optional else branch
+    branches*: seq[IfBranchNode]
+    elseBranch*: Option[CStmt]
 
   IfBranchNode* = object
-    condition*: CNode # Condition for the if branch
-    body*: CNode # Body of the if branch
+    condition*: CExpr
+    body*: CStmt
 
   # Expressions
   AssignmentNode* = object
-    lhs*: CNode # Left-hand side (target)
-    rhs*: CNode # Right-hand side (value)
-    operator*: TokenKind # =, +=, -=, etc.
+    lhs*: CExpr
+    rhs*: CExpr
+    operator*: TokenKind
 
   BinaryExprNode* = object
-    left*: CNode
+    left*: CExpr
     operator*: TokenKind
-    right*: CNode
+    right*: CExpr
 
   UnaryExprNode* = object
     operator*: TokenKind
-    operand*: CNode
+    operand*: CExpr
 
   FunctionCallNode* = object
-    callee*: CNode
-    arguments*: seq[CNode]
+    callee*: CExpr
+    arguments*: seq[CExpr]
 
   IdentifierNode* = object
     name*: string
 
   ArrayAccessNode* = object
-    array*: CNode
-    index*: CNode
+    array*: CExpr
+    index*: CExpr
 
   GroupNode* = object
-    expression*: CNode
+    expression*: CExpr
 
   AddressOfNode* = object
-    operand*: CNode
+    operand*: CExpr
 
   DereferenceNode* = object
-    operand*: CNode
+    operand*: CExpr
 
   # Literals
   IntLiteralNode* = object
@@ -169,36 +160,42 @@ type
   BoolLiteralNode* = object
     value*: bool
 
-  # Main CNode type
-  CNode* = ref object
-    pos*: Position # Source position for error reporting
-    comments*: seq[string] # Comments associated with this node
-    case kind*: CNodeKind
-    of CnkTranslationUnit: translationUnitNode*: TranslationUnitNode
-    of CnkFunctionDecl: functionDeclNode*: FunctionDeclNode
-    of CnkFunctionDef: functionDefNode*: FunctionDefNode
-    of CnkVarDecl: varDeclNode*: VarDeclNode
-    of CnkDefine: defineNode*: DefineNode
-    of CnkInclude: includeNode*: IncludeNode
-    of CnkIfDef: ifDefNode*: IfDefNode
-    of CnkIfNotDef: ifNotDefNode*: IfNotDefNode
-    of CnkBlockStmt: blockStmtNode*: BlockStmtNode
-    of CnkExprStmt: exprStmtNode*: ExprStmtNode
-    of CnkReturnStmt: returnStmtNode*: ReturnStmtNode
-    of CnkIfStmt: ifStmtNode*: IfStmtNode
-    of CnkAssignment: assignmentNode*: AssignmentNode
-    of CnkBinaryExpr: binaryExprNode*: BinaryExprNode
-    of CnkUnaryExpr: unaryExprNode*: UnaryExprNode
-    of CnkFunctionCall: functionCallNode*: FunctionCallNode
-    of CnkIdentifier: identifierNode*: IdentifierNode
-    of CnkArrayAccess: arrayAccessNode*: ArrayAccessNode
-    of CnkGroupExpr: groupNode*: GroupNode
-    of CnkAddressOf: addressOfNode*: AddressOfNode
-    of CnkDereference: dereferenceNode*: DereferenceNode
-    of CnkIntLiteral: intLiteralNode*: IntLiteralNode
-    of CnkUIntLiteral: uintLiteralNode*: UIntLiteralNode
-    of CnkFloatLiteral: floatLiteralNode*: FloatLiteralNode
-    of CnkStringLiteral: stringLiteralNode*: StringLiteralNode
-    of CnkCharLiteral: charLiteralNode*: CharLiteralNode
-    of CnkBoolLiteral: boolLiteralNode*: BoolLiteralNode
-    of CnkNullLiteral, CnkNop: discard
+  # Main CStmt type
+  CStmt* = ref object
+    pos*: Position
+    comments*: seq[string]
+    case kind*: CStmtKind
+    of CskTranslationUnit: translationUnitNode*: TranslationUnitNode
+    of CskFunctionDecl: functionDeclNode*: FunctionDeclNode
+    of CskFunctionDef: functionDefNode*: FunctionDefNode
+    of CskVarDecl: varDeclNode*: VarDeclNode
+    of CskDefine: defineNode*: DefineNode
+    of CskInclude: includeNode*: IncludeNode
+    of CskIfDef: ifDefNode*: IfDefNode
+    of CskIfNotDef: ifNotDefNode*: IfNotDefNode
+    of CskBlockStmt: blockStmtNode*: BlockStmtNode
+    of CskExprStmt: exprStmtNode*: ExprStmtNode
+    of CskReturnStmt: returnStmtNode*: ReturnStmtNode
+    of CskIfStmt: ifStmtNode*: IfStmtNode
+    of CskNop: discard
+
+  # Main CExpr type
+  CExpr* = ref object
+    pos*: Position
+    case kind*: CExprKind
+    of CekAssignment: assignmentNode*: AssignmentNode
+    of CekBinaryExpr: binaryExprNode*: BinaryExprNode
+    of CekUnaryExpr: unaryExprNode*: UnaryExprNode
+    of CekFunctionCall: functionCallNode*: FunctionCallNode
+    of CekIdentifier: identifierNode*: IdentifierNode
+    of CekArrayAccess: arrayAccessNode*: ArrayAccessNode
+    of CekGroupExpr: groupNode*: GroupNode
+    of CekAddressOf: addressOfNode*: AddressOfNode
+    of CekDereference: dereferenceNode*: DereferenceNode
+    of CekIntLiteral: intLiteralNode*: IntLiteralNode
+    of CekUIntLiteral: uintLiteralNode*: UIntLiteralNode
+    of CekFloatLiteral: floatLiteralNode*: FloatLiteralNode
+    of CekStringLiteral: stringLiteralNode*: StringLiteralNode
+    of CekCharLiteral: charLiteralNode*: CharLiteralNode
+    of CekBoolLiteral: boolLiteralNode*: BoolLiteralNode
+    of CekNullLiteral: discard

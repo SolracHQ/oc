@@ -19,8 +19,8 @@
   - [ ] Fix type resolution for variables that end with metatypes
   - [ ] Determine approach for type variables/symbols
 
-- [ ] **AST Construction**
-  - [ ] Add helper function to create AST variants to avoid uninitialized members
+- [x] **AST Construction**
+  - [x] Add helper function to create AST variants to avoid uninitialized members
 
 ## Medium Priority
 

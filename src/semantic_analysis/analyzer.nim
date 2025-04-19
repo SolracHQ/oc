@@ -11,7 +11,7 @@ import type_checker
 type Analyzer* = ref object
   fileInfo*: FileInfo
   scope*: Scope
-  module: Node
+  module: Stmt
   hasError*: bool
   symbolMapper: SymbolMapper
   reachabilityChecker: ReachabilityChecker
@@ -40,7 +40,7 @@ proc newAnalyzer*(fileInfo: FileInfo): Analyzer =
 
 proc analyze*(
     analyzer: Analyzer
-): tuple[hasError: bool, symbolTable: Scope, module: Node] =
+): tuple[hasError: bool, symbolTable: Scope, module: Stmt] =
   # Only run if parsing didn't fail
   if analyzer.hasError:
     return (analyzer.hasError, analyzer.scope, analyzer.module)

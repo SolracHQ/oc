@@ -57,35 +57,17 @@ proc areTypesCompatible(
   )
   return false
 
-proc analyzeTypeChecking*(checker: TypeChecker, scope: Scope, node: Node) =
-  ## Check that all types match correctly in expressions, assignments, and function calls
-  case node.kind
-  of NkModule:
-    # Process each statement in the module
-    for stmt in node.moduleNode.statements:
-      analyzeTypeChecking(checker, scope, stmt)
-  of NkVarDecl:
-    # Check type of initializer against variable type
-    let varDecl = node.varDeclNode
-    if varDecl.initializer.isSome:
-      # Verify that the initializer type matches the variable type
-      let initExpr = varDecl.initializer.get()
-      let inferencer = newTypeInferencer(checker.fileInfo)
-      let initType = inferExpressionType(inferencer, scope, initExpr)
-      discard areTypesCompatible(checker, varDecl.typeAnnotation, initType, node.pos)
-
-      # Process the initializer expression
-      analyzeTypeChecking(checker, scope, initExpr)
-  of NkAssignment:
-    # Check type of right side against left side variable type
-    let identifier = node.assignmentNode.identifier
-    let value = node.assignmentNode.value
-
-    # Get variable type
-    let symbolOpt = scope.findSymbol(identifier, node.pos, Variable)
+proc analyzeTypeCheckingExpr(checker: TypeChecker, scope: Scope, expr: Expr) =
+  ## Type check an expression node
+  case expr.kind
+  of EkAssignment:
+    # Assignment is valid as an expression; check types
+    let identifier = expr.assignmentExpr.identifier
+    let value = expr.assignmentExpr.value
+    let symbolOpt = scope.findSymbol(identifier, expr.pos, Variable)
     if symbolOpt.isNone:
       checker.typeCheckError(
-        node.pos,
+        expr.pos,
         "Assignment to undeclared variable '" & identifier & "'",
         "use 'let' or 'var' to declare it",
       )
@@ -93,20 +75,136 @@ proc analyzeTypeChecking*(checker: TypeChecker, scope: Scope, node: Node) =
       let symbol = symbolOpt.get()
       let inferencer = newTypeInferencer(checker.fileInfo)
       let valueType = inferExpressionType(inferencer, scope, value)
-      discard areTypesCompatible(checker, symbol.varType, valueType, node.pos)
-
-    # Process value expression
-    analyzeTypeChecking(checker, scope, value)
-  of NkFunctionCall:
-    # Check argument types against function parameter types
-    let callee = node.functionCallNode.callee
-    let arguments = node.functionCallNode.arguments
-
-    # Get function information
-    if callee.kind == NkIdentifier:
-      let funcName = callee.identifierNode.name
+      discard areTypesCompatible(checker, symbol.varType, valueType, expr.pos)
+    # Type check both sides
+    # (left is just an identifier, but for completeness)
+    # If you support more complex lvalues, update here
+    # analyzeTypeCheckingExpr(checker, scope, expr.assignmentExpr.left) # Not needed for identifier
+    analyzeTypeCheckingExpr(checker, scope, value)
+  of EkLogicalExpr:
+    let inferencer = newTypeInferencer(checker.fileInfo)
+    let leftType = inferExpressionType(inferencer, scope, expr.binaryOpExpr.left)
+    let rightType = inferExpressionType(inferencer, scope, expr.binaryOpExpr.right)
+    if leftType.kind != TkPrimitive or leftType.primitive != Bool:
+      checker.typeCheckError(
+        expr.binaryOpExpr.left.pos,
+        "Logical operator requires boolean operands",
+        "left operand is " & $leftType,
+      )
+    if rightType.kind != TkPrimitive or rightType.primitive != Bool:
+      checker.typeCheckError(
+        expr.binaryOpExpr.right.pos,
+        "Logical operator requires boolean operands",
+        "right operand is " & $rightType,
+      )
+    analyzeTypeCheckingExpr(checker, scope, expr.binaryOpExpr.left)
+    analyzeTypeCheckingExpr(checker, scope, expr.binaryOpExpr.right)
+  of EkEqualityExpr, EkComparisonExpr:
+    let inferencer = newTypeInferencer(checker.fileInfo)
+    let leftType = inferExpressionType(inferencer, scope, expr.binaryOpExpr.left)
+    let rightType = inferExpressionType(inferencer, scope, expr.binaryOpExpr.right)
+    if leftType.kind == TkPrimitive and rightType.kind == TkPrimitive:
+      if leftType.primitive != rightType.primitive:
+        checker.typeCheckError(
+          expr.pos,
+          "Type mismatch in comparison.",
+          $leftType.primitive & " cannot be compared with " & $rightType.primitive,
+        )
+    analyzeTypeCheckingExpr(checker, scope, expr.binaryOpExpr.left)
+    analyzeTypeCheckingExpr(checker, scope, expr.binaryOpExpr.right)
+  of EkAdditiveExpr, EkMultiplicativeExpr:
+    let inferencer = newTypeInferencer(checker.fileInfo)
+    let leftType = inferExpressionType(inferencer, scope, expr.binaryOpExpr.left)
+    let rightType = inferExpressionType(inferencer, scope, expr.binaryOpExpr.right)
+    if (isIntFamily(leftType) and isIntFamily(rightType)) or
+        (isFloatFamily(leftType) and isFloatFamily(rightType)) or
+        (isUIntFamily(leftType) and isUIntFamily(rightType)):
+      discard
+    elif (isIntFamily(leftType) and isFloatFamily(rightType)) or
+        (isFloatFamily(leftType) and isIntFamily(rightType)):
+      checker.typeCheckError(
+        expr.pos,
+        "Type mismatch in arithmetic operation.",
+        $leftType & " and " & $rightType & " (int and float types cannot be mixed)",
+      )
+    elif (isIntFamily(leftType) and isUIntFamily(rightType)) or
+        (isUIntFamily(leftType) and isIntFamily(rightType)):
+      checker.typeCheckError(
+        expr.pos,
+        "Type mismatch in arithmetic operation.",
+        $leftType & " and " & $rightType & " (int and uint types cannot be mixed)",
+      )
+    elif (isFloatFamily(leftType) and isUIntFamily(rightType)) or
+        (isUIntFamily(leftType) and isFloatFamily(rightType)):
+      checker.typeCheckError(
+        expr.pos,
+        "Type mismatch in arithmetic operation.",
+        $leftType & " and " & $rightType & " (float and uint types cannot be mixed)",
+      )
+    else:
+      checker.typeCheckError(
+        expr.pos,
+        "Arithmetic operations require numeric types",
+        "but got " & $leftType & " and " & $rightType,
+      )
+    analyzeTypeCheckingExpr(checker, scope, expr.binaryOpExpr.left)
+    analyzeTypeCheckingExpr(checker, scope, expr.binaryOpExpr.right)
+  of EkUnaryExpr:
+    let inferencer = newTypeInferencer(checker.fileInfo)
+    let operandType = inferExpressionType(inferencer, scope, expr.unaryOpExpr.operand)
+    case expr.unaryOpExpr.operator
+    of TkMinus:
+      if not (
+        isIntFamily(operandType) or isFloatFamily(operandType) or
+        isUIntFamily(operandType)
+      ):
+        checker.typeCheckError(
+          expr.pos, "Unary minus requires numeric operand", "but got " & $operandType
+        )
+    of TkBang:
+      if operandType.kind != TkPrimitive or operandType.primitive != Bool:
+        checker.typeCheckError(
+          expr.pos,
+          "Logical negation requires boolean operand",
+          "but got " & $operandType,
+        )
+    else:
+      checker.typeCheckError(
+        expr.pos,
+        "Unsupported unary operator: " & $expr.unaryOpExpr.operator,
+        "This should not happen: " & $expr.unaryOpExpr.operator,
+      )
+    analyzeTypeCheckingExpr(checker, scope, expr.unaryOpExpr.operand)
+  of EkAddressOfExpr:
+    let inferencer = newTypeInferencer(checker.fileInfo)
+    let operandType =
+      inferExpressionType(inferencer, scope, expr.addressOfExpr.operand)
+    if not operandType.hasAddress:
+      checker.typeCheckError(
+        expr.pos,
+        "Address-of operator requires a value with an address",
+        "but got " & $operandType,
+      )
+    analyzeTypeCheckingExpr(checker, scope, expr.addressOfExpr.operand)
+  of EkDerefExpr:
+    let inferencer = newTypeInferencer(checker.fileInfo)
+    let operandType = inferExpressionType(inferencer, scope, expr.derefExpr.operand)
+    if operandType.kind != TkPointer and operandType.kind != TkROPointer:
+      checker.typeCheckError(
+        expr.pos,
+        "Dereference operator requires a pointer type",
+        "but got " & $operandType,
+      )
+    analyzeTypeCheckingExpr(checker, scope, expr.derefExpr.operand)
+  of EkMemberAccess:
+    analyzeTypeCheckingExpr(checker, scope, expr.memberAccessExpr.obj)
+  of EkFunctionCall:
+    let callee = expr.functionCallExpr.callee
+    let arguments = expr.functionCallExpr.arguments
+    # Only handle identifier calls for now
+    if callee.kind == EkIdentifier:
+      let funcName = callee.identifierExpr.name
       let symbolOpt = scope.findSymbol(funcName, callee.pos, {Function, Variable})
-
       if symbolOpt.isNone:
         checker.typeCheckError(
           callee.pos,
@@ -122,281 +220,118 @@ proc analyzeTypeChecking*(checker: TypeChecker, scope: Scope, node: Node) =
       else:
         let funcSymbol = symbolOpt.get()
         let paramTypes = funcSymbol.paramTypes
-
-        # Handle varargs - check if the last parameter is a varargs type
         let hasVarArgs =
           paramTypes.len > 0 and paramTypes[^1].kind == TkMeta and
           paramTypes[^1].metaKind == MkCVarArgs
-
-        # Check number of arguments with varargs handling
         if hasVarArgs:
           if arguments.len < paramTypes.len - 1:
             checker.typeCheckError(
-              node.pos,
+              expr.pos,
               "Too few arguments to function '" & funcName & "'",
               "Expected at least " & $(paramTypes.len - 1) & " arguments but got " &
                 $arguments.len,
             )
         if not hasVarArgs:
           if arguments.len < paramTypes.len:
-            # Regular function without varargs
             checker.typeCheckError(
-              node.pos,
+              expr.pos,
               "Too few arguments to function '" & funcName & "'",
               "Expected " & $paramTypes.len & " arguments but got " & $arguments.len,
             )
           elif arguments.len > paramTypes.len:
-            # Too many arguments for a regular function
             checker.typeCheckError(
-              node.pos,
+              expr.pos,
               "Too many arguments to function '" & funcName & "'",
               "Expected " & $paramTypes.len & " arguments but got " & $arguments.len,
             )
-
-        # Check each argument type
         let inferencer = newTypeInferencer(checker.fileInfo)
         let regularParamCount =
           if hasVarArgs:
             paramTypes.len - 1
           else:
             paramTypes.len
-
-        # Check regular parameters
         for i in 0 ..< min(regularParamCount, arguments.len):
           let argType = inferExpressionType(inferencer, scope, arguments[i])
           let paramType = paramTypes[i]
           discard areTypesCompatible(checker, paramType, argType, arguments[i].pos)
-
-    # Process the callee and all arguments
-    analyzeTypeChecking(checker, scope, callee)
+    analyzeTypeCheckingExpr(checker, scope, callee)
     for arg in arguments:
-      analyzeTypeChecking(checker, scope, arg)
-  of NkReturnStmt:
-    # Check that the return type matches the function's declared return type
-    if node.returnStmtNode.expression.isSome:
-      let returnExpr = node.returnStmtNode.expression.get()
+      analyzeTypeCheckingExpr(checker, scope, arg)
+  of EkGroupExpr:
+    analyzeTypeCheckingExpr(checker, scope, expr.groupExpr.expression)
+  # Leaf nodes
+  of EkIdentifier, EkIntLiteral, EkUIntLiteral, EkFloatLiteral, EkStringLiteral,
+      EkCStringLiteral, EkCharLiteral, EkBoolLiteral, EkNilLiteral, EkType:
+    discard
 
-      # Find the enclosing function
+proc analyzeTypeChecking*(checker: TypeChecker, scope: Scope, stmt: Stmt) =
+  ## Check that all types match correctly in statements and their contained expressions
+  case stmt.kind
+  of SkModule:
+    for s in stmt.moduleStmt.statements:
+      analyzeTypeChecking(checker, scope, s)
+  of SkVarDecl:
+    let varDecl = stmt.varDeclStmt
+    if varDecl.initializer.isSome:
+      let initExpr = varDecl.initializer.get()
+      let inferencer = newTypeInferencer(checker.fileInfo)
+      let initType = inferExpressionType(inferencer, scope, initExpr)
+      discard areTypesCompatible(checker, varDecl.typeAnnotation, initType, stmt.pos)
+      analyzeTypeCheckingExpr(checker, scope, initExpr)
+  of SkFunDecl:
+    let funDecl = stmt.funDeclStmt
+    if funDecl.body.isSome:
+      if scope.children.hasKey(funDecl.identifier):
+        let functionScope = scope.children[funDecl.identifier]
+        analyzeTypeChecking(checker, functionScope, funDecl.body.get())
+  of SkBlockStmt:
+    let blockScope = scope.children[stmt.blockStmt.blockId]
+    for s in stmt.blockStmt.statements:
+      analyzeTypeChecking(checker, blockScope, s)
+  of SkExprStmt:
+    analyzeTypeCheckingExpr(checker, scope, stmt.exprStmt.expression)
+  of SkReturnStmt:
+    if stmt.returnStmt.expression.isSome:
+      let returnExpr = stmt.returnStmt.expression.get()
       var currentScope = scope
       var funcSymbol: Symbol = nil
-
       while currentScope != nil:
         if currentScope.kind == FunctionScope:
-          # Found the enclosing function
           let parentScope = currentScope.parent
           if parentScope != nil:
             let funcName = currentScope.name
-            let symbolOpt = parentScope.findSymbol(funcName, node.pos, Function)
+            let symbolOpt = parentScope.findSymbol(funcName, stmt.pos, Function)
             if symbolOpt.isSome:
               funcSymbol = symbolOpt.get()
           break
         currentScope = currentScope.parent
-
       if funcSymbol != nil:
-        # Check return type compatibility
         let inferencer = newTypeInferencer(checker.fileInfo)
         let exprType = inferExpressionType(inferencer, scope, returnExpr)
-        discard areTypesCompatible(checker, funcSymbol.returnType, exprType, node.pos)
+        discard areTypesCompatible(checker, funcSymbol.returnType, exprType, stmt.pos)
       else:
         checker.typeCheckError(
-          node.pos,
+          stmt.pos,
           "Return statement outside of function",
           "Return statements must be inside a function",
         )
-
-      # Process the return expression
-      analyzeTypeChecking(checker, scope, returnExpr)
-  of NkFunDecl:
-    # Process function body if present
-    let funDecl = node.funDeclNode
-    if funDecl.body.isSome:
-      # Use function scope for analyzing the body
-      if scope.children.hasKey(funDecl.identifier):
-        let functionScope = scope.children[funDecl.identifier]
-        analyzeTypeChecking(checker, functionScope, funDecl.body.get())
-  of NkBlockStmt:
-    # Process statements in block scope
-    let blockScope = scope.children[node.blockStmtNode.blockId]
-    for stmt in node.blockStmtNode.statements:
-      analyzeTypeChecking(checker, blockScope, stmt)
-  of NkExprStmt:
-    # Process expression statements
-    analyzeTypeChecking(checker, scope, node.exprStmtNode.expression)
-  of NkIfStmt:
-    # Check both branches of the if statement
-    for i, branch in node.ifStmtNode.branches:
+      analyzeTypeCheckingExpr(checker, scope, returnExpr)
+  of SkIfStmt:
+    for i, branch in stmt.ifStmt.branches:
       let branchScope = scope.children[branch.scopeId]
       let inferencer = newTypeInferencer(checker.fileInfo)
       let condType = inferExpressionType(inferencer, scope, branch.condition)
       if condType.kind != TkPrimitive or condType.primitive != Bool:
         checker.typeCheckError(
           branch.condition.pos,
-          if i == 0:
-            "if"
-          else:
-            "elif" & " condition must be a boolean expression",
+          (if i == 0: "if" else: "elif") & " condition must be a boolean expression",
           "but got " & $condType,
         )
-      analyzeTypeChecking(checker, branchScope, branch.condition)
+      analyzeTypeCheckingExpr(checker, branchScope, branch.condition)
       analyzeTypeChecking(checker, branchScope, branch.body)
-    if node.ifStmtNode.elseBranch.isSome:
-      let elseBranch = node.ifStmtNode.elseBranch.get
+    if stmt.ifStmt.elseBranch.isSome:
+      let elseBranch = stmt.ifStmt.elseBranch.get
       let elseScope = scope.children[elseBranch.scopeId]
       analyzeTypeChecking(checker, elseScope, elseBranch.body)
-  of NkLogicalExpr:
-    # Check both operands are boolean
-    let inferencer = newTypeInferencer(checker.fileInfo)
-    let leftType = inferExpressionType(inferencer, scope, node.binaryOpNode.left)
-    let rightType = inferExpressionType(inferencer, scope, node.binaryOpNode.right)
-
-    if leftType.kind != TkPrimitive or leftType.primitive != Bool:
-      checker.typeCheckError(
-        node.binaryOpNode.left.pos,
-        "Logical operator requires boolean operands",
-        "left operand is " & $leftType,
-      )
-
-    if rightType.kind != TkPrimitive or rightType.primitive != Bool:
-      checker.typeCheckError(
-        node.binaryOpNode.right.pos,
-        "Logical operator requires boolean operands",
-        "right operand is " & $rightType,
-      )
-
-    # Process both operands
-    analyzeTypeChecking(checker, scope, node.binaryOpNode.left)
-    analyzeTypeChecking(checker, scope, node.binaryOpNode.right)
-  of NkEqualityExpr, NkComparisonExpr:
-    # Check both operands are of the same type
-    let inferencer = newTypeInferencer(checker.fileInfo)
-    let leftType = inferExpressionType(inferencer, scope, node.binaryOpNode.left)
-    let rightType = inferExpressionType(inferencer, scope, node.binaryOpNode.right)
-
-    if leftType.kind == TkPrimitive and rightType.kind == TkPrimitive:
-      if leftType.primitive != rightType.primitive:
-        checker.typeCheckError(
-          node.pos,
-          "Type mismatch in comparison.",
-          $leftType.primitive & " cannot be compared with " & $rightType.primitive,
-        )
-
-    # Process both operands
-    analyzeTypeChecking(checker, scope, node.binaryOpNode.left)
-    analyzeTypeChecking(checker, scope, node.binaryOpNode.right)
-  of NkAdditiveExpr, NkMultiplicativeExpr:
-    # Check both operands are numeric and of the same type
-    let inferencer = newTypeInferencer(checker.fileInfo)
-    let leftType = inferExpressionType(inferencer, scope, node.binaryOpNode.left)
-    let rightType = inferExpressionType(inferencer, scope, node.binaryOpNode.right)
-
-    # Both are numeric but possibly different types
-    if (isIntFamily(leftType) and isIntFamily(rightType)) or
-        (isFloatFamily(leftType) and isFloatFamily(rightType)) or
-        (isUIntFamily(leftType) and isUIntFamily(rightType)):
-      # Types within the same family - OK
-      discard
-    elif (isIntFamily(leftType) and isFloatFamily(rightType)) or
-        (isFloatFamily(leftType) and isIntFamily(rightType)):
-      checker.typeCheckError(
-        node.pos,
-        "Type mismatch in arithmetic operation.",
-        $leftType & " and " & $rightType & " (int and float types cannot be mixed)",
-      )
-    elif (isIntFamily(leftType) and isUIntFamily(rightType)) or
-        (isUIntFamily(leftType) and isIntFamily(rightType)):
-      checker.typeCheckError(
-        node.pos,
-        "Type mismatch in arithmetic operation.",
-        $leftType & " and " & $rightType & " (int and uint types cannot be mixed)",
-      )
-    elif (isFloatFamily(leftType) and isUIntFamily(rightType)) or
-        (isUIntFamily(leftType) and isFloatFamily(rightType)):
-      checker.typeCheckError(
-        node.pos,
-        "Type mismatch in arithmetic operation.",
-        $leftType & " and " & $rightType & " (float and uint types cannot be mixed)",
-      )
-    else:
-      checker.typeCheckError(
-        node.pos,
-        "Arithmetic operations require numeric types",
-        "but got " & $leftType & " and " & $rightType,
-      )
-
-    # Process both operands
-    analyzeTypeChecking(checker, scope, node.binaryOpNode.left)
-    analyzeTypeChecking(checker, scope, node.binaryOpNode.right)
-  of NkUnaryExpr:
-    # Check operand type based on operator
-    let inferencer = newTypeInferencer(checker.fileInfo)
-    let operandType = inferExpressionType(inferencer, scope, node.unaryOpNode.operand)
-
-    case node.unaryOpNode.operator
-    of TkMinus:
-      # Negation requires numeric type
-      if not (
-        isIntFamily(operandType) or isFloatFamily(operandType) or
-        isUIntFamily(operandType)
-      ):
-        checker.typeCheckError(
-          node.pos, "Unary minus requires numeric operand", "but got " & $operandType
-        )
-    of TkBang:
-      # Logical negation requires boolean
-      if operandType.kind != TkPrimitive or operandType.primitive != Bool:
-        checker.typeCheckError(
-          node.pos,
-          "Logical negation requires boolean operand",
-          "but got " & $operandType,
-        )
-    else:
-      checker.typeCheckError(
-        node.pos,
-        "Unsupported unary operator: " & $node.unaryOpNode.operator,
-        "THis should not happen: " & $node.unaryOpNode.operator,
-      )
-
-    # Process the operand
-    analyzeTypeChecking(checker, scope, node.unaryOpNode.operand)
-  of NkAddressOfExpr:
-    # Check operand type
-    let inferencer = newTypeInferencer(checker.fileInfo)
-    let operandType =
-      inferExpressionType(inferencer, scope, node.addressOfExprNode.operand)
-
-    # Address-of operator requires a variable
-    if not operandType.hasAddress:
-      checker.typeCheckError(
-        node.pos,
-        "Address-of operator requires a value with an address",
-        "but got " & $operandType,
-      )
-
-    # Process the operand
-    analyzeTypeChecking(checker, scope, node.addressOfExprNode.operand)
-  of NkDerefExpr:
-    # Check operand type
-    let inferencer = newTypeInferencer(checker.fileInfo)
-    let operandType = inferExpressionType(inferencer, scope, node.derefExprNode.operand)
-
-    # Dereference operator requires a pointer type
-    if operandType.kind != TkPointer and operandType.kind != TkROPointer:
-      checker.typeCheckError(
-        node.pos,
-        "Dereference operator requires a pointer type",
-        "but got " & $operandType,
-      )
-
-    # Process the operand
-    analyzeTypeChecking(checker, scope, node.derefExprNode.operand)
-  of NkMemberAccess:
-    # Process the object
-    analyzeTypeChecking(checker, scope, node.memberAccessNode.obj)
-  of NkGroupExpr:
-    # Process the inner expression
-    analyzeTypeChecking(checker, scope, node.groupNode.expression)
-
-  # Leaf nodes - no further processing needed
-  of NkIdentifier, NkIntLiteral, NkUIntLiteral, NkFloatLiteral, NkStringLiteral,
-      NkCStringLiteral, NkCharLiteral, NkBoolLiteral, NkNilLiteral, NkType, NkNop:
+  of SkNop:
     discard

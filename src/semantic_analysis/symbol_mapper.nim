@@ -19,16 +19,16 @@ proc newSymbolMapper*(fileInfo: FileInfo, scope: Scope): SymbolMapper =
   result.scope = scope
   result.hasError = false
 
-proc initializeTable*(symbolMapper: SymbolMapper, scope: Scope, node: Node) =
+proc initializeTable*(symbolMapper: SymbolMapper, scope: Scope, node: Stmt) =
   ## Initializes the symbol table for the analyzer
   case node.kind
-  of NkModule:
+  of SkModule:
     # Process each statement in the module
-    for stmt in node.moduleNode.statements:
+    for stmt in node.moduleStmt.statements:
       initializeTable(symbolMapper, scope, stmt)
-  of NkVarDecl:
+  of SkVarDecl:
     # Handle variable declarations
-    var varDecl = node.varDeclNode
+    var varDecl = node.varDeclStmt
     varDecl.typeAnnotation.hasAddress = true
     let varSymbol = Symbol(
       name: varDecl.identifier,
@@ -47,10 +47,11 @@ proc initializeTable*(symbolMapper: SymbolMapper, scope: Scope, node: Node) =
 
     # Process initializer if present
     if varDecl.initializer.isSome:
-      initializeTable(symbolMapper, scope, varDecl.initializer.get)
-  of NkFunDecl:
+      # Initializer is an Expr, not a Stmt
+      discard
+  of SkFunDecl:
     # Handle function declarations
-    let funDecl = node.funDeclNode
+    let funDecl = node.funDeclStmt
 
     # do not allow public functions in inner scopes
     if funDecl.isPublic and scope.kind != ModuleScope:
@@ -84,7 +85,7 @@ proc initializeTable*(symbolMapper: SymbolMapper, scope: Scope, node: Node) =
       # Add parameters to function scope
       for param in funDecl.parameters:
         let paramSymbol = Symbol(
-          name: param.identifier,
+          name: param.name,
           node: node,
           kind: Variable,
           varType: param.paramType,
@@ -92,21 +93,21 @@ proc initializeTable*(symbolMapper: SymbolMapper, scope: Scope, node: Node) =
           isInitialized: true, # Parameters are initialized
         )
 
-        if not functionScope.addSymbol(param.identifier, paramSymbol):
+        if not functionScope.addSymbol(param.name, paramSymbol):
           symbolMapper.symbolMapperError(
             node.pos,
-            "Parameter name '" & param.identifier & "' already used in this function",
+            "Parameter name '" & param.name & "' already used in this function",
           )
 
       initializeTable(symbolMapper, functionScope, funDecl.body.get)
-  of NkBlockStmt:
+  of SkBlockStmt:
     # Create block scope
-    let blockScope = newScope(BlockScope, scope, node.blockStmtNode.blockId)
-    for stmt in node.blockStmtNode.statements:
+    let blockScope = newScope(BlockScope, scope, node.blockStmt.blockId)
+    for stmt in node.blockStmt.statements:
       initializeTable(symbolMapper, blockScope, stmt)
-  of NkIfStmt:
+  of SkIfStmt:
     # Handle if statements with branches and optional else
-    let ifStmt = node.ifStmtNode
+    let ifStmt = node.ifStmt
     for branch in ifStmt.branches:
       let branchScope = newScope(BlockScope, scope, branch.scopeId)
       initializeTable(symbolMapper, branchScope, branch.body)
@@ -114,19 +115,11 @@ proc initializeTable*(symbolMapper: SymbolMapper, scope: Scope, node: Node) =
       let elseBranch = ifStmt.elseBranch.get
       let elseScope = newScope(BlockScope, scope, elseBranch.scopeId)
       initializeTable(symbolMapper, elseScope, elseBranch.body)
-  of NkExprStmt:
+  of SkExprStmt:
     # Expression statements cannot define new symbols
     discard
-  of NkReturnStmt:
+  of SkReturnStmt:
     # Return statements cannot define new symbols
     discard
-  of NkAssignment, NkLogicalExpr, NkEqualityExpr, NkComparisonExpr, NkAdditiveExpr,
-      NkMultiplicativeExpr, NkUnaryExpr, NkMemberAccess, NkFunctionCall, NkGroupExpr,
-      NkAddressOfExpr, NkDerefExpr:
-    # Only statements can define new symbols
-    discard
-
-  # Leaf nodes - no further processing needed
-  of NkIdentifier, NkIntLiteral, NkUIntLiteral, NkFloatLiteral, NkStringLiteral,
-      NkCStringLiteral, NkCharLiteral, NkBoolLiteral, NkNilLiteral, NkType, NkNop:
+  of SkNop:
     discard

@@ -18,7 +18,7 @@ type
   Symbol* = ref object
     name*: string
     canonicalName*: string # The C name of the symbol
-    node*: Node
+    node*: Stmt
     case kind*: SymbolKind
     of Variable:
       varType*: Type
@@ -99,5 +99,5 @@ proc isReadOnly*(symbol: Symbol): bool =
   ## Check if a symbol is read-only
   ## Only variables can be read-only
   result =
-    symbol.kind == Variable and symbol.node.kind == NkVarDecl and
-    symbol.node.varDeclNode.isReadOnly
+    symbol.kind == Variable and symbol.node.kind == SkVarDecl and
+    symbol.node.varDeclStmt.isReadOnly

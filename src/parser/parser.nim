@@ -1,6 +1,7 @@
 import ../lexer/lexer
 import ../types/[file_info, types, token, ast, annotation]
 import ../reporter
+import ../builders/ast_builder
 
 import std/options
 import std/random
@@ -100,86 +101,51 @@ proc synchronize(parser: var Parser) =
     discard parser.advance()
 
 # Forward declarations
-proc parseExpression(parser: var Parser): Node
-proc parseStatement(parser: var Parser, requireNewLine: bool = true): Node
-proc parseBlockStmt(parser: var Parser): Node
+proc parseExpression(parser: var Parser): Expr
+proc parseStatement(parser: var Parser, requireNewLine: bool = true): Stmt
+proc parseBlockStmt(parser: var Parser): Stmt
 proc parseType(parser: var Parser): Type
 
-proc parsePrimary(parser: var Parser): Node =
+proc parsePrimary(parser: var Parser): Expr =
   ## Parse a primary expression
   if parser.isAtEnd():
     parser.parserError("Unexpected end of input")
   if parser.match({TKIdent}):
     let token = parser.peek(-1).get()
-    return Node(
-      kind: NkIdentifier,
-      pos: token.pos,
-      identifierNode: IdentifierNode(name: token.lexeme),
-    )
+    return newIdentifierExpr(token.lexeme, token.pos)
   elif parser.match({TKIntLit}):
     let token = parser.peek(-1).get()
-    return Node(
-      kind: NkIntLiteral,
-      pos: token.pos,
-      intLiteralNode: IntLiteralNode(value: token.intValue),
-    )
+    return newLiteralExpr(token.intValue, token.pos)
   elif parser.match({TKUIntLit}):
     let token = parser.peek(-1).get()
-    return Node(
-      kind: NkUIntLiteral,
-      pos: token.pos,
-      uintLiteralNode: UIntLiteralNode(value: token.uintValue),
-    )
+    return newLiteralExpr(token.uintValue, token.pos)
   elif parser.match({TKFloatLit}):
     let token = parser.peek(-1).get()
-    return Node(
-      kind: NkFloatLiteral,
-      pos: token.pos,
-      floatLiteralNode: FloatLiteralNode(value: token.floatValue),
-    )
+    return newLiteralExpr(token.floatValue, token.pos)
   elif parser.match({TKStringLit}):
     let token = parser.peek(-1).get()
-    return Node(
-      kind: NkStringLiteral,
-      pos: token.pos,
-      stringLiteralNode: StringLiteralNode(value: token.lexeme),
-    )
+    return newLiteralExpr(token.stringValue, token.pos)
   elif parser.match({TKCStringLit}):
     let token = parser.peek(-1).get()
-    return Node(
-      kind: NkCStringLiteral,
-      pos: token.pos,
-      cStringLiteralNode: CStringLiteralNode(value: token.lexeme),
-    )
+    return newCStringLiteralExpr(token.lexeme, token.pos)
   elif parser.match({TKCharLit}):
     let token = parser.peek(-1).get()
-    return Node(
-      kind: NkCharLiteral,
-      pos: token.pos,
-      charLiteralNode: CharLiteralNode(value: token.lexeme[0]),
-    )
+    return newLiteralExpr(token.charValue, token.pos)
   elif parser.match({TkTrue, TkFalse}):
     let token = parser.peek(-1).get()
-    return Node(
-      kind: NkBoolLiteral,
-      pos: token.pos,
-      boolLiteralNode: BoolLiteralNode(value: token.lexeme == "true"),
-    )
+    return newLiteralExpr(token.lexeme == "true", token.pos)
   elif parser.match({TKNil}):
-    return Node(kind: NkNilLiteral, pos: parser.peek(-1).get().pos)
+    let token = parser.peek(-1).get()
+    return newNilLiteralExpr(token.pos)
   elif parser.match({TKLParen}):
     let token = parser.peek(-1).get()
     let expr = parser.parseExpression()
     discard parser.consume({TKRParen}, "Expect ')' after expression.")
-    return
-      Node(kind: NkGroupExpr, pos: token.pos, groupNode: GroupNode(expression: expr))
-  elif parser.match(Primitives):
-    let token = parser.peek(-1).get()
-    return Node(kind: NkType, pos: token.pos, typeNode: token.`type`)
+    return newGroupExpr(expr, token.pos)
   else:
     parser.parserError("Expect expression but got " & $parser.peek().get().kind)
 
-proc parseFunctionArguments(parser: var Parser): seq[Node] =
+proc parseFunctionArguments(parser: var Parser): seq[Expr] =
   ## Parse function arguments (comma-separated expressions)
   result = @[]
 
@@ -203,178 +169,110 @@ proc parseFunctionArguments(parser: var Parser): seq[Node] =
 
   return result
 
-proc parseMemberAccess(parser: var Parser): Node =
-  ## Parse member access (e.g., obj.member) and function calls (e.g., function())
-  ## Handles Nim-style method call desugaring where a.fun(b) becomes fun(a, b)
-  result = parser.parsePrimary()
-  while parser.check({TKDot, TKLParen}):
+proc parseMemberAccess(parser: var Parser): Expr =
+  ## Parse member access (e.g., obj.member) and function calls (e.g., function()) and function pointer calls (e.g., obj.fun())
+  var expr = parser.parsePrimary()
+  while true:
     if parser.match({TKDot}):
-      let token = parser.peek(-1).get()
-      discard parser.consume(
-        {TKIdent}, "Expect identifier after '.' but got " & $parser.peek().get().kind
-      )
-      let member = parser.peek(-1).get().lexeme
-
-      # Check if this member access is immediately followed by a function call
-      if parser.check({TKLParen}):
-        # This is a method call like a.fun() that should become fun(a)
-        discard parser.advance() # Consume the '('
-        let args = parser.parseFunctionArguments()
-
-        # Create a function call with the member as function name and object as first arg
-        let methodName = Node(
-          kind: NkIdentifier,
-          pos: token.pos,
-          identifierNode: IdentifierNode(name: member),
-        )
-
-        # Create a list with object as first argument followed by other args
-        var fullArgs: seq[Node] = @[result]
-        fullArgs.add(args)
-
-        result = Node(
-          kind: NkFunctionCall,
-          pos: token.pos,
-          functionCallNode: FunctionCallNode(callee: methodName, arguments: fullArgs),
-        )
-
-        discard parser.consume({TKRParen}, "Expect ')' after function arguments.")
-      else:
-        # Normal member access (not immediately followed by function call)
-        result = Node(
-          kind: NkMemberAccess,
-          pos: token.pos,
-          memberAccessNode: MemberAccessNode(obj: result, member: member),
-        )
+      let dotToken = parser.peek(-1).get()
+      let memberToken = parser.consume({TKIdent}, "Expect identifier after '.' for member access")
+      expr = newMemberAccessExpr(expr, memberToken.lexeme, dotToken.pos)
     elif parser.match({TKLParen}):
-      let token = parser.peek(-1).get()
+      let lparenToken = parser.peek(-1).get()
       let args = parser.parseFunctionArguments()
-      result = Node(
-        kind: NkFunctionCall,
-        pos: token.pos,
-        functionCallNode: FunctionCallNode(callee: result, arguments: args),
-      )
-      discard parser.consume({TKRParen}, "Expect ')' after function arguments.")
+      discard parser.consume({TKRParen}, "Expect ')' after function arguments")
+      expr = newFunctionCallExpr(expr, args, lparenToken.pos)
+    else:
+      break
+  return expr
 
-proc parseAddress(parser: var Parser): Node =
+proc parseAddress(parser: var Parser): Expr =
   ## Parse address-of operator (&)
   if parser.match({TKAmpersand}):
     let token = parser.peek(-1).get()
     let operand = parser.parseAddress()
-    return Node(
-      kind: NkAddressOfExpr,
-      pos: token.pos,
-      addressOfExprNode: AddressOfExprNode(operand: operand),
-    )
+    return newAddressOfExpr(operand, token.pos)
   return parser.parseMemberAccess()
 
-proc parseDereference(parser: var Parser): Node =
+proc parseDereference(parser: var Parser): Expr =
   ## Parse dereference operator (*)
   if parser.match({TKStar}):
     let token = parser.peek(-1).get()
     let operand = parser.parseDereference()
-    return Node(
-      kind: NkDerefExpr, pos: token.pos, derefExprNode: DerefExprNode(operand: operand)
-    )
+    return newDerefExpr(operand, token.pos)
   return parser.parseAddress()
 
-proc parseUnary(parser: var Parser): Node =
+proc parseUnary(parser: var Parser): Expr =
   ## Parse unary expressions (e.g., -x, !x)
   if parser.match({TKMinus, TKBang}):
     let token = parser.peek(-1).get()
     let operator = token
     let operand = parser.parseUnary()
-    return Node(
-      kind: NkUnaryExpr,
-      pos: token.pos,
-      unaryOpNode: UnaryOpNode(operator: operator.kind, operand: operand),
-    )
+    return newUnaryOpExpr(operator.kind, operand, token.pos)
   return parser.parseDereference()
 
-proc parseMultiplicative(parser: var Parser): Node =
+proc parseMultiplicative(parser: var Parser): Expr =
   ## Parse multiplicative expressions (e.g., x * y, x / y)
   var node = parser.parseUnary()
   while parser.match({TKStar, TKSlash, TKPercent}):
     let token = parser.peek(-1).get()
     let operator = token
     let right = parser.parseUnary()
-    node = Node(
-      kind: NkMultiplicativeExpr,
-      pos: token.pos,
-      binaryOpNode: BinaryOpNode(left: node, operator: operator.kind, right: right),
-    )
+    node = newBinaryOpExpr(EkMultiplicativeExpr, node, operator.kind, right, token.pos)
   return node
 
-proc parseAdditive(parser: var Parser): Node =
+proc parseAdditive(parser: var Parser): Expr =
   ## Parse additive expressions (e.g., x + y, x - y)
   var node = parser.parseMultiplicative()
   while parser.match({TKPlus, TKMinus}):
     let token = parser.peek(-1).get()
     let operator = token
     let right = parser.parseMultiplicative()
-    node = Node(
-      kind: NkAdditiveExpr,
-      pos: token.pos,
-      binaryOpNode: BinaryOpNode(left: node, operator: operator.kind, right: right),
-    )
+    node = newBinaryOpExpr(EkAdditiveExpr, node, operator.kind, right, token.pos)
   return node
 
-proc parseComparison(parser: var Parser): Node =
+proc parseComparison(parser: var Parser): Expr =
   ## Parse comparison expressions (e.g., x < y, x > y)
   var node = parser.parseAdditive()
   while parser.match({TkRAngle, TKBiggerEqual, TkLAngle, TKSmallerEqual}):
     let token = parser.peek(-1).get()
     let operator = token
     let right = parser.parseAdditive()
-    node = Node(
-      kind: NkComparisonExpr,
-      pos: token.pos,
-      binaryOpNode: BinaryOpNode(left: node, operator: operator.kind, right: right),
-    )
+    node = newBinaryOpExpr(EkComparisonExpr, node, operator.kind, right, token.pos)
   return node
 
-proc parseEquality(parser: var Parser): Node =
+proc parseEquality(parser: var Parser): Expr =
   ## Parse equality expressions (e.g., x == y, x != y)
   var node = parser.parseComparison()
   while parser.match({TKEqualEqual, TKBangEqual}):
     let token = parser.peek(-1).get()
     let operator = token
     let right = parser.parseComparison()
-    node = Node(
-      kind: NkEqualityExpr,
-      pos: token.pos,
-      binaryOpNode: BinaryOpNode(left: node, operator: operator.kind, right: right),
-    )
+    node = newBinaryOpExpr(EkEqualityExpr, node, operator.kind, right, token.pos)
   return node
 
-proc parseLogical(parser: var Parser): Node =
+proc parseLogical(parser: var Parser): Expr =
   ## Parse logical expressions (e.g., x or y, x and y)
   var node = parser.parseEquality()
   while parser.match({TKOr, TKAnd}):
     let token = parser.peek(-1).get()
     let operator = token
     let right = parser.parseEquality()
-    node = Node(
-      kind: NkLogicalExpr,
-      pos: token.pos,
-      binaryOpNode: BinaryOpNode(left: node, operator: operator.kind, right: right),
-    )
+    node = newBinaryOpExpr(EkLogicalExpr, node, operator.kind, right, token.pos)
   return node
 
-proc parseAssignment(parser: var Parser): Node =
+proc parseAssignment(parser: var Parser): Expr =
   ## Parse assignment expressions (e.g., x.y = y)
   let left = parser.parseLogical()
   if parser.match({TKEqual}):
+    if left.kind != EkIdentifier:
+      parser.parserError("Expect identifier on left side of assignment.")
     let token = parser.peek(-1).get()
     let right = parser.parseAssignment()
-    return Node(
-      kind: NkAssignment,
-      pos: token.pos,
-      assignmentNode: AssignmentNode(identifier: left.identifierNode.name, value: right),
-    )
+    return newAssignmentExpr(left.identifierExpr.name, right, token.pos)
   return left
 
-proc parseExpression(parser: var Parser): Node =
+proc parseExpression(parser: var Parser): Expr =
   ## Parse an expression
   return parser.parseAssignment()
 
@@ -394,38 +292,31 @@ proc parseType(parser: var Parser): Type =
     echo parser.peek().get().kind
     parser.parserError("Expect type.")
 
-proc parseExpressionStmt(parser: var Parser): Node =
+proc parseExpressionStmt(parser: var Parser): Stmt =
   ## Parse an expression statement
   let expr = parser.parseExpression()
-  return
-    Node(kind: NkExprStmt, pos: expr.pos, exprStmtNode: ExprStmtNode(expression: expr))
+  return newExprStmt(expr, expr.pos)
 
-proc parseReturnStmt(parser: var Parser): Node =
+proc parseReturnStmt(parser: var Parser): Stmt =
   ## Parse a return statement
   let token = parser.peek(-1).get()
   let expr =
     if parser.check({TKSemicolon, TKNewline}):
-      none(Node)
+      none(Expr)
     else:
       some(parser.parseExpression())
-  return Node(
-    kind: NkReturnStmt, pos: token.pos, returnStmtNode: ReturnStmtNode(expression: expr)
-  )
+  return newReturnStmt(expr, token.pos)
 
-proc parseBlockStmt(parser: var Parser): Node =
+proc parseBlockStmt(parser: var Parser): Stmt =
   ## Parse a block statement
   let token = parser.peek(-1).get()
-  var statements: seq[Node]
+  var statements: seq[Stmt]
   while not parser.check({TKRBrace}):
     statements.add(parser.parseStatement())
   discard parser.consume({TKRBrace}, "Expect '}' after block.")
-  return Node(
-    kind: NkBlockStmt,
-    pos: token.pos,
-    blockStmtNode: BlockStmtNode(statements: statements, blockId: randomString()),
-  )
+  return newBlockStmt(randomString(), statements, token.pos)
 
-proc parseVarDecl(parser: var Parser, isPublic: bool, isReadOnly: bool = false): Node =
+proc parseVarDecl(parser: var Parser, isPublic: bool, isReadOnly: bool = false): Stmt =
   ## Parse a variable declaration
   let token = parser.peek(-1).get()
   discard parser.consume(
@@ -441,70 +332,49 @@ proc parseVarDecl(parser: var Parser, isPublic: bool, isReadOnly: bool = false):
     if parser.match({TKEqual}):
       some(parser.parseExpression())
     else:
-      none(Node)
-  return Node(
-    kind: NkVarDecl,
-    pos: token.pos,
-    varDeclNode: VarDeclNode(
-      identifier: identifier,
-      typeAnnotation: typeAnnotation,
-      initializer: initializer,
-      isPublic: isPublic,
-      isReadOnly: isReadOnly,
-    ),
-  )
+      none(Expr)
+  return newVarDeclStmt(identifier, typeAnnotation, initializer, isPublic, isReadOnly, token.pos)
 
-proc parseFunDecl(parser: var Parser, isPublic: bool): Node =
+proc parseFunDecl(parser: var Parser, isPublic: bool): Stmt =
   ## Parse a function declaration
   let token = parser.peek(-1).get()
-  discard parser.consume({TKIdent}, "Expect identifier after 'fun'.")
-  let identifier = parser.peek(-1).get().lexeme
+  let idTok = parser.consume({TKIdent}, "Expect identifier after 'fun'.")
+  let identifier = idTok.lexeme
+  let identifierPos = idTok.pos
   discard parser.consume({TKLParen}, "Expect '(' after function name.")
-
-  # Clean up new lines after opening parenthesis
   parser.cleanUpNewLines()
-
-  var parameters: seq[ParameterNode]
+  var parameters: seq[FunctionParam]
   while not parser.check({TKRParen}):
     if parameters.len > 0:
       discard parser.consume({TKComma}, "Expect ',' between parameters.")
-      # Clean up new lines after comma
       parser.cleanUpNewLines()
-
-    discard parser.consume({TKIdent}, "Expect parameter name.")
-    let paramName = parser.peek(-1).get().lexeme
+    let nameTok = parser.consume({TKIdent}, "Expect parameter name.")
+    let paramName = nameTok.lexeme
+    let namePos = nameTok.pos
     discard parser.consume({TKColon}, "Expect ':' after parameter name.")
+    let typeStartTok = parser.peek().get()
     let paramType = parser.parseType()
-    parameters.add(ParameterNode(identifier: paramName, paramType: paramType))
-
-    # Clean up new lines after parameter
+    let typePos = typeStartTok.pos
+    parameters.add(FunctionParam(name: paramName, namePos: namePos, paramType: paramType, paramTypePos: typePos))
     parser.cleanUpNewLines()
-
-  discard parser.consume(
-    {TKRParen},
-    "Expect ')' after function parameters but got " & $parser.peek().get().kind,
-  )
-  let returnType =
+  discard parser.consume({TKRParen}, "Expect ')' after function parameters but got " & $parser.peek().get().kind)
+  let (returnType, returnTypePos) =
     if parser.match({TKColon}):
-      parser.parseType()
+      let typeTok = parser.peek().get()
+      (parser.parseType(), typeTok.pos)
     else:
-      Type(kind: TkPrimitive, primitive: Void)
+      (Type(kind: TkPrimitive, primitive: Void), token.pos)
   let body =
     if parser.check({TKLBrace}):
       some(parser.parseStatement())
     else:
-      none(Node)
-  return Node(
-    kind: NkFunDecl,
-    pos: token.pos,
-    funDeclNode: FunDeclNode(
-      identifier: identifier,
-      parameters: parameters,
-      returnType: returnType,
-      body: body,
-      isPublic: isPublic,
-    ),
-  )
+      none(Stmt)
+  var builder = newFunDeclBuilder(identifier, identifierPos, returnType, returnTypePos, isPublic, token.pos)
+  for param in parameters:
+    addParameter(builder, param)
+  if body.isSome:
+    setBody(builder, body.get())
+  return buildFunDeclStmt(builder)
 
 proc parseAnnotationProperties(
     parser: var Parser
@@ -597,7 +467,7 @@ proc parseAnnotations(parser: var Parser): Table[string, Annotation] =
     # Clean up new lines
     parser.cleanUpNewLines()
 
-proc parseIfStmt(parser: var Parser): Node =
+proc parseIfStmt(parser: var Parser): Stmt =
   ## Parse an if statement with optional elif and else branches
   let ifToken = parser.peek(-1).get() # 'if' token already matched
   discard parser.consume({TKLParen}, "Expect '(' after 'if'.")
@@ -608,8 +478,8 @@ proc parseIfStmt(parser: var Parser): Node =
   let ifBody = parser.parseStatement(false)
   # Clean up new lines after body
   parser.cleanUpNewLines()
-  var branches: seq[IfBranchNode] =
-    @[IfBranchNode(scopeId: randomString(), condition: ifCond, body: ifBody)]
+  var builder = newIfStmtBuilder(ifToken.pos)
+  addIfBranch(builder, randomString(), ifCond, ifBody)
 
   # Parse zero or more elif branches
   while parser.match({TKElif}):
@@ -622,23 +492,16 @@ proc parseIfStmt(parser: var Parser): Node =
     let elifBody = parser.parseStatement(false)
     # Clean up new lines after body
     parser.cleanUpNewLines()
-    branches.add(
-      IfBranchNode(scopeId: randomString(), condition: elifCond, body: elifBody)
-    )
+    addIfBranch(builder, randomString(), elifCond, elifBody)
 
   # Optionally parse else branch
-  var elseBranch: Option[ElseBranchNode] = none(ElseBranchNode)
   if parser.match({TKElse}):
     let elseBody = parser.parseStatement(false)
-    elseBranch = some(ElseBranchNode(scopeId: randomString(), body: elseBody))
+    setElseBranch(builder, randomString(), elseBody)
 
-  return Node(
-    kind: NkIfStmt,
-    pos: ifToken.pos,
-    ifStmtNode: IfStmtNode(branches: branches, elseBranch: elseBranch),
-  )
+  return buildIfStmt(builder)
 
-proc parseStatement(parser: var Parser, requireNewLine: bool = true): Node =
+proc parseStatement(parser: var Parser, requireNewLine: bool = true): Stmt =
   ## Parse a statement (flexible preamble: comments, annotations, newlines in any order)
   try:
     var comments: seq[string]
@@ -687,15 +550,15 @@ proc parseStatement(parser: var Parser, requireNewLine: bool = true): Node =
   except PanicMode:
     # Synchronize to recover from errors
     parser.synchronize()
-    return Node(kind: NkNop)
+    return Stmt(kind: SkNop)
 
-proc parseModule*(file: FileInfo): tuple[hasError: bool, module: Node] =
+proc parseModule*(file: FileInfo): tuple[hasError: bool, module: Stmt] =
   ## Parse a module
   var parser = newParser(file)
-  var statements: seq[Node]
+  var statements: seq[Stmt]
   while not parser.isAtEnd():
     statements.add(parser.parseStatement())
   result.hasError = parser.hasError
-  result.module = Node(
-    kind: NkModule, moduleNode: ModuleNode(name: file.name, statements: statements)
+  result.module = Stmt(
+    kind: SkModule, moduleStmt: ModuleStmt(name: file.name, statements: statements)
   )

@@ -19,10 +19,10 @@ proc generateCode*(file: file_info.FileInfo): bool =
   # Generate header file
   let headerFileName = cacheDir / (file.name & ".h")
   let headerFile = open(headerFileName, fmWrite)
-  headerFile.write(cNodeToString(hFile))
+  headerFile.write(cStmtToString(hFile))
   headerFile.close()
   # Generate C file
   let cFileName = cacheDir / (file.name & ".c")
   let cFileHandle = open(cFileName, fmWrite)
-  cFileHandle.write(cNodeToString(cFile))
+  cFileHandle.write(cStmtToString(cFile))
   cFileHandle.close()

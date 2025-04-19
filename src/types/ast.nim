@@ -5,187 +5,183 @@ import annotation
 import std/options
 
 type
-  NodeKind* = enum
-    # Program structure
-    NkModule
-    NkNop
+  StmtKind* = enum
+    SkModule
+    SkVarDecl
+    SkFunDecl
+    SkBlockStmt
+    SkExprStmt
+    SkReturnStmt
+    SkIfStmt
+    SkNop
 
-    # Statements
-    NkVarDecl # Now represents both var and let declarations
-    NkFunDecl
-    NkBlockStmt
-    NkExprStmt
-    NkReturnStmt
-    NkIfStmt
-
-    # Expressions
-    NkAssignment
-    NkLogicalExpr
-    NkEqualityExpr
-    NkComparisonExpr
-    NkAdditiveExpr
-    NkMultiplicativeExpr
-    NkUnaryExpr
-    NkMemberAccess
-    NkFunctionCall
-    NkIdentifier
-    NkGroupExpr
-    NkAddressOfExpr
-    NkDerefExpr
-
-    # Literals
-    NkIntLiteral
-    NkUIntLiteral
-    NkFloatLiteral
-    NkStringLiteral
-    NkCStringLiteral
-    NkCharLiteral
-    NkBoolLiteral
-    NkNilLiteral
-
-    # Types
-    NkType
+  ExprKind* = enum
+    EkAssignment
+    EkLogicalExpr
+    EkEqualityExpr
+    EkComparisonExpr
+    EkAdditiveExpr
+    EkMultiplicativeExpr
+    EkUnaryExpr
+    EkMemberAccess
+    EkFunctionCall
+    EkIdentifier
+    EkGroupExpr
+    EkAddressOfExpr
+    EkDerefExpr
+    EkIntLiteral
+    EkUIntLiteral
+    EkFloatLiteral
+    EkStringLiteral
+    EkCStringLiteral
+    EkCharLiteral
+    EkBoolLiteral
+    EkNilLiteral
+    EkType
 
   # Program
-  ModuleNode* = object
+  ModuleStmt* = object
     name*: string
-    statements*: seq[Node]
+    statements*: seq[Stmt]
 
   # Statements
-  VarDeclNode* = object
+  VarDeclStmt* = object
     isPublic*: bool
     isReadOnly*: bool # Indicates if this is a 'let' declaration
     identifier*: string
     typeAnnotation*: Type
-    initializer*: Option[Node]
+    initializer*: Option[Expr]
 
-  FunDeclNode* = object
+  FunctionParam* = object
+    name*: string
+    namePos*: Position
+    paramType*: Type
+    paramTypePos*: Position
+    defaultValue*: Option[Expr]
+
+  FunDeclStmt* = object
     identifier*: string
-    parameters*: seq[ParameterNode]
+    identifierPos*: Position
+    parameters*: seq[FunctionParam]
     returnType*: Type
-    body*: Option[Node]
+    returnTypePos*: Position
+    body*: Option[Stmt]
     isPublic*: bool
 
-  ParameterNode* = object
-    identifier*: string
-    paramType*: Type
-
-  BlockStmtNode* = object
+  BlockStmt* = object
     blockId*: string
-    statements*: seq[Node]
+    statements*: seq[Stmt]
 
-  ExprStmtNode* = object
-    expression*: Node
+  ExprStmt* = object
+    expression*: Expr
 
-  ReturnStmtNode* = object
-    expression*: Option[Node]
+  ReturnStmt* = object
+    expression*: Option[Expr]
 
-  IfStmtNode* = object
-    branches*: seq[IfBranchNode]
-    elseBranch*: Option[ElseBranchNode]
+  IfStmt* = object
+    branches*: seq[IfBranch]
+    elseBranch*: Option[ElseBranch]
 
-  IfBranchNode* = object
+  IfBranch* = object
     scopeId*: string
-    condition*: Node
-    body*: Node
+    condition*: Expr
+    body*: Stmt
 
-  ElseBranchNode* = object
+  ElseBranch* = object
     scopeId*: string
-    body*: Node
+    body*: Stmt
 
   # Expressions
-  AssignmentNode* = object
+  AssignmentExpr* = object
     identifier*: string
-    value*: Node
+    value*: Expr
 
-  BinaryOpNode* = object
-    left*: Node
+  BinaryOpExpr* = object
+    left*: Expr
     operator*: TokenKind
-    right*: Node
+    right*: Expr
 
-  UnaryOpNode* = object
+  UnaryOpExpr* = object
     operator*: TokenKind
-    operand*: Node
+    operand*: Expr
 
-  MemberAccessNode* = object
-    obj*: Node
+  MemberAccessExpr* = object
+    obj*: Expr
     member*: string
 
-  FunctionCallNode* = object
-    callee*: Node
-    arguments*: seq[Node]
+  FunctionCallExpr* = object
+    callee*: Expr
+    arguments*: seq[Expr]
 
-  IdentifierNode* = object
+  IdentifierExpr* = object
     name*: string
 
-  GroupNode* = object
-    expression*: Node
+  GroupExpr* = object
+    expression*: Expr
 
-  AddressOfExprNode* = object
-    operand*: Node
+  AddressOfExpr* = object
+    operand*: Expr
 
-  DerefExprNode* = object
-    operand*: Node
+  DerefExpr* = object
+    operand*: Expr
 
   # Literals
-  IntLiteralNode* = object
+  IntLiteralExpr* = object
     value*: int
 
-  UIntLiteralNode* = object
+  UIntLiteralExpr* = object
     value*: uint
 
-  FloatLiteralNode* = object
+  FloatLiteralExpr* = object
     value*: float
 
-  StringLiteralNode* = object
+  StringLiteralExpr* = object
     value*: string
 
-  CStringLiteralNode* = object
+  CStringLiteralExpr* = object
     value*: string
 
-  CharLiteralNode* = object
+  CharLiteralExpr* = object
     value*: char
 
-  BoolLiteralNode* = object
+  BoolLiteralExpr* = object
     value*: bool
 
-  # Types
-  PrimitiveTypeNode* = object
-    kind*: TokenKind
-
-  # Main Node type
-  Node* = ref object
-    pos*: Position # Source position for error reporting
+  # Statements
+  Stmt* = ref object
+    pos*: Position
     annotations*: Annotations
     comments*: seq[string]
-    case kind*: NodeKind
-    of NkModule: moduleNode*: ModuleNode
-    of NkVarDecl: varDeclNode*: VarDeclNode
-    of NkFunDecl: funDeclNode*: FunDeclNode
-    of NkBlockStmt: blockStmtNode*: BlockStmtNode
-    of NkExprStmt: exprStmtNode*: ExprStmtNode
-    of NkReturnStmt: returnStmtNode*: ReturnStmtNode
-    of NkIfStmt: ifStmtNode*: IfStmtNode
-    of NkAssignment: assignmentNode*: AssignmentNode
-    of NkLogicalExpr, NkEqualityExpr, NkComparisonExpr, NkAdditiveExpr,
-        NkMultiplicativeExpr: binaryOpNode*: BinaryOpNode
-    of NkUnaryExpr: unaryOpNode*: UnaryOpNode
-    of NkMemberAccess: memberAccessNode*: MemberAccessNode
-    of NkFunctionCall: functionCallNode*: FunctionCallNode
-    of NkIdentifier: identifierNode*: IdentifierNode
-    of NkGroupExpr: groupNode*: GroupNode
-    of NkAddressOfExpr: addressOfExprNode*: AddressOfExprNode
-    of NkDerefExpr: derefExprNode*: DerefExprNode
-    of NkIntLiteral: intLiteralNode*: IntLiteralNode
-    of NkUIntLiteral: uintLiteralNode*: UIntLiteralNode
-    of NkFloatLiteral: floatLiteralNode*: FloatLiteralNode
-    of NkStringLiteral: stringLiteralNode*: StringLiteralNode
-    of NkCStringLiteral: cStringLiteralNode*: CStringLiteralNode
-    of NkCharLiteral: charLiteralNode*: CharLiteralNode
-    of NkBoolLiteral: boolLiteralNode*: BoolLiteralNode
-    of NkNilLiteral, NkNop: discard
-    of NkType: typeNode*: Type
+    case kind*: StmtKind
+    of SkModule: moduleStmt*: ModuleStmt
+    of SkVarDecl: varDeclStmt*: VarDeclStmt
+    of SkFunDecl: funDeclStmt*: FunDeclStmt
+    of SkBlockStmt: blockStmt*: BlockStmt
+    of SkExprStmt: exprStmt*: ExprStmt
+    of SkReturnStmt: returnStmt*: ReturnStmt
+    of SkIfStmt: ifStmt*: IfStmt
+    of SkNop: discard
 
-# Node constructors
-proc newModule*(pos: Position, statements: seq[Node]): Node =
-  Node(kind: NkModule, pos: pos, moduleNode: ModuleNode(statements: statements))
+  # Expressions
+  Expr* = ref object
+    pos*: Position
+    annotations*: Annotations
+    case kind*: ExprKind
+    of EkAssignment: assignmentExpr*: AssignmentExpr
+    of EkLogicalExpr, EkEqualityExpr, EkComparisonExpr, EkAdditiveExpr, EkMultiplicativeExpr: binaryOpExpr*: BinaryOpExpr
+    of EkUnaryExpr: unaryOpExpr*: UnaryOpExpr
+    of EkMemberAccess: memberAccessExpr*: MemberAccessExpr
+    of EkFunctionCall: functionCallExpr*: FunctionCallExpr
+    of EkIdentifier: identifierExpr*: IdentifierExpr
+    of EkGroupExpr: groupExpr*: GroupExpr
+    of EkAddressOfExpr: addressOfExpr*: AddressOfExpr
+    of EkDerefExpr: derefExpr*: DerefExpr
+    of EkIntLiteral: intLiteralExpr*: IntLiteralExpr
+    of EkUIntLiteral: uintLiteralExpr*: UIntLiteralExpr
+    of EkFloatLiteral: floatLiteralExpr*: FloatLiteralExpr
+    of EkStringLiteral: stringLiteralExpr*: StringLiteralExpr
+    of EkCStringLiteral: cStringLiteralExpr*: CStringLiteralExpr
+    of EkCharLiteral: charLiteralExpr*: CharLiteralExpr
+    of EkBoolLiteral: boolLiteralExpr*: BoolLiteralExpr
+    of EkNilLiteral: discard
+    of EkType: typeExpr*: Type
