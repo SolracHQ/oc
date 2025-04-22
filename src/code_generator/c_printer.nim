@@ -2,7 +2,6 @@
 import ../types/ast_c
 import ../types/types_c
 import ../types/token
-import ../types/file_info
 import std/strutils
 import std/options
 import std/sets
@@ -53,7 +52,7 @@ proc cStmtToString*(node: CStmt, indent: int = 0): string =
   let ind = repeat(' ', indent)
   let lineInfo =
     if node.pos.file != nil:
-      ind & "#line " & $node.pos.line & "  \"" & absPath(node.pos.file) & "\"\n"
+      "" #ind & "#line " & $node.pos.line & "  \"" & absPath(node.pos.file) & "\"\n"
     else:
       ""
   case node.kind
@@ -93,6 +92,10 @@ proc cStmtToString*(node: CStmt, indent: int = 0): string =
       for b in node.ifDefNode.elseBody:
         result.add(cStmtToString(b, indent))
     result.add(ind & "#endif\n")
+  of CskWhileStmt:
+    let w = node.whileStmtNode
+    result = lineInfo & ind & "while (" & cExprToString(w.condition, 0) & ") "
+    result.add("{\n" & cStmtToString(w.body, indent + 2) & ind & "}\n")
   of CskFunctionDecl:
     let fn = node.functionDeclNode
     let params =
@@ -152,6 +155,16 @@ proc cStmtToString*(node: CStmt, indent: int = 0): string =
     if ifs.elseBranch.isSome:
       result.add(ind & "else ")
       result.add("{\n" & cStmtToString(ifs.elseBranch.get(), indent + 2) & ind & "}\n")
+  of CskTypedef:
+    let td = node.typedefNode
+    result =
+      lineInfo & ind & "typedef " & cTypeToString(td.baseType) & " " & td.name & ";\n"
+  of CskStructDef:
+    let sd = node.structDefNode
+    result = lineInfo & ind & "typedef struct " & sd.name & " {\n"
+    for m in sd.members:
+      result.add(ind & "  " & cTypeToString(m.paramType) & " " & m.name & ";\n")
+    result.add(ind & "} " & sd.name & ";\n")
   of CskNop:
     result = ""
 
@@ -196,5 +209,20 @@ proc cExprToString*(node: CExpr, indent: int = 0): string =
     result = ind & "'" & node.charLiteralNode.value & "'"
   of CekBoolLiteral:
     result = ind & (if node.boolLiteralNode.value: "1" else: "0")
+  of CekStructLiteral:
+    let sl = node.structLiteralNode
+    result = ind & "(" & sl.typeName & ")"
+    result.add("{")
+    for i, m in sl.members:
+      if i > 0:
+        result.add(", ")
+      result.add("." & m.name & " = " & cExprToString(m.value, 0))
+    result.add("}")
+  of CekMemberAccess:
+    let ma = node.memberAccessNode
+    result = ind & cExprToString(ma.expr, 0) & "." & ma.member
+  of CekArrowMemberAccess:
+    let ama = node.arrowMemberAccessNode
+    result = ind & cExprToString(ama.expr, 0) & "->" & ama.member
   of CekNullLiteral:
     result = ind & "NULL"

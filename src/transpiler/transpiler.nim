@@ -16,10 +16,10 @@ type Transpiler* = ref object
   entryPoint: Option[Symbol] # Entry point for the transpiler, if any
 
 proc transpilerError(
-    transpiler: Transpiler, error: string, pos: Position, hint: string = ""
+    transpiler: Transpiler, pos: Position, error: string, hint: string = ""
 ) =
   ## Log an error during transpilation
-  logError("Transpiler", error, pos, hint)
+  logError("Transpiler", pos, error, hint)
   transpiler.hasError = true
 
 proc transpileVariable(
@@ -27,24 +27,23 @@ proc transpileVariable(
 ): Option[CStmt]
 
 proc makePointerType(base: CType): CType =
-  result = CType(kind: CkPointer, ctype: new CType)
-  result.ctype[] = base
+  result = CType(kind: CkPointer, ctype: base)
 
 proc getGlobalSymbols(transpiler: Transpiler, scope: Scope): seq[Symbol] =
   ## Get all global symbols from the scope
   for (name, symbol) in scope.symbols.pairs():
-    if symbol.kind == Variable and symbol.isGlobal:
+    if symbol.kind == Variable and scope.kind == ModuleScope:
       result.add(symbol)
     elif symbol.kind == Function:
       result.add(symbol)
-      if symbol.node.annotations.hasAnnotation("entrypoint"):
+      if symbol.declStmt.annotations.hasAnnotation("entrypoint"):
         if transpiler.entryPoint.isNone:
           transpiler.entryPoint = some(symbol)
         else:
           transpilerError(
             transpiler,
+            symbol.declStmt.pos,
             "Multiple entry points found: " & symbol.canonicalName,
-            symbol.node.pos,
           )
     elif symbol.kind == Type:
       result.add(symbol)
@@ -52,34 +51,104 @@ proc getGlobalSymbols(transpiler: Transpiler, scope: Scope): seq[Symbol] =
     result.add(getGlobalSymbols(transpiler, child))
   result.sort((s1, s2) => s1.kind.int.cmp s2.kind.int)
 
+proc transpileStructDecl(
+    transpiler: Transpiler, symbol: Symbol, stmt: Stmt
+): Option[CStmt] =
+  # Transpile a struct declaration to a C struct definition
+  let structName = symbol.canonicalName
+  var members: seq[ast_c.ParameterNode] = @[]
+  for mname, m in stmt.structDeclStmt.members:
+    let memberType = m.memberType.toCType()
+    if memberType.isNone:
+      transpilerError(
+        transpiler,
+        m.namePos,
+        "Invalid struct member type for: " & m.name,
+        "Metatypes cannot be mapped to C types",
+      )
+      return none(CStmt)
+    members.add(ast_c.ParameterNode(name: m.name, paramType: memberType.get()))
+  result = some(
+    CStmt(
+      kind: CskStructDef,
+      pos: stmt.pos,
+      comments: stmt.comments,
+      structDefNode: ast_c.StructDefNode(name: structName, members: members),
+    )
+  )
+
+proc transpileTypeDecl(
+    transpiler: Transpiler, symbol: Symbol, stmt: Stmt
+): Option[CStmt] =
+  # Transpile a type declaration to a C typedef
+  let typeName = symbol.canonicalName
+  let baseType = stmt.typeDeclStmt.typeAnnotation.toCType()
+  if baseType.isNone:
+    transpilerError(
+      transpiler,
+      stmt.pos,
+      "Invalid typedef base type for: " & typeName,
+      "Metatypes cannot be mapped to C types",
+    )
+    return none(CStmt)
+  result = some(
+    CStmt(
+      kind: CskTypedef,
+      pos: stmt.pos,
+      comments: stmt.comments,
+      typedefNode: ast_c.TypedefNode(name: typeName, baseType: baseType.get()),
+    )
+  )
+
+proc transpileExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CExpr]
+
+proc transpileStructLiteral(
+    transpiler: Transpiler, scope: Scope, expr: Expr
+): Option[CExpr] =
+  # Transpile a struct literal expression to a C struct literal
+  let typeName = expr.structLiteralExpr.typeName
+  let symbol = scope.findSymbol(typeName, expr.pos, Type)
+  if symbol.isNone:
+    transpilerError(
+      transpiler,
+      expr.pos,
+      "Cannot find struct type: " & typeName,
+      "Struct '" & typeName & "' not found",
+    )
+    return none(CExpr)
+  let canonicalName = symbol.get().canonicalName
+  var members: seq[ast_c.StructLiteralMemberNode] = @[]
+  for m in expr.structLiteralExpr.members:
+    let valueC = transpileExpr(transpiler, scope, m.value)
+    if valueC.isNone:
+      return none(CExpr)
+    members.add(ast_c.StructLiteralMemberNode(name: m.name, value: valueC.get()))
+  result = some(
+    CExpr(
+      kind: CekStructLiteral,
+      pos: expr.pos,
+      structLiteralNode:
+        ast_c.StructLiteralNode(typeName: canonicalName, members: members),
+    )
+  )
+
 proc transpileExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CExpr] =
   case expr.kind
   of EkAssignment:
-    let lhsSym = scope.findSymbol(expr.assignmentExpr.identifier, expr.pos, Variable)
-    if lhsSym.isNone:
-      transpilerError(
-        transpiler,
-        "Assignment to undeclared variable: " & expr.assignmentExpr.identifier,
-        expr.pos,
-      )
-      return none(CExpr)
-    let lhs = CExpr(
-      kind: CekIdentifier,
-      pos: expr.pos,
-      identifierNode: ast_c.IdentifierNode(name: lhsSym.get().canonicalName),
-    )
+    let lhs = transpileExpr(transpiler, scope, expr.assignmentExpr.left)
     let rhsC = transpileExpr(transpiler, scope, expr.assignmentExpr.value)
-    if rhsC.isNone:
+    if rhsC.isNone or lhs.isNone:
       return none(CExpr)
     result = some(
       CExpr(
         kind: CekAssignment,
         pos: expr.pos,
         assignmentNode:
-          ast_c.AssignmentNode(lhs: lhs, rhs: rhsC.get(), operator: TkEqual),
+          ast_c.AssignmentNode(lhs: lhs.get(), rhs: rhsC.get(), operator: TkEqual),
       )
     )
-  of EkLogicalExpr, EkEqualityExpr, EkComparisonExpr, EkAdditiveExpr, EkMultiplicativeExpr:
+  of EkLogicalExpr, EkEqualityExpr, EkComparisonExpr, EkAdditiveExpr,
+      EkMultiplicativeExpr:
     let leftC = transpileExpr(transpiler, scope, expr.binaryOpExpr.left)
     let rightC = transpileExpr(transpiler, scope, expr.binaryOpExpr.right)
     if leftC.isNone or rightC.isNone:
@@ -88,7 +157,6 @@ proc transpileExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CEx
       CExpr(
         kind: CekBinaryExpr,
         pos: expr.pos,
-        
         binaryExprNode: ast_c.BinaryExprNode(
           left: leftC.get(), operator: expr.binaryOpExpr.operator, right: rightC.get()
         ),
@@ -102,24 +170,39 @@ proc transpileExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CEx
       CExpr(
         kind: CekUnaryExpr,
         pos: expr.pos,
-        
-        unaryExprNode:
-          ast_c.UnaryExprNode(operator: expr.unaryOpExpr.operator, operand: operandC.get()),
+        unaryExprNode: ast_c.UnaryExprNode(
+          operator: expr.unaryOpExpr.operator, operand: operandC.get()
+        ),
       )
     )
   of EkMemberAccess:
     let objC = transpileExpr(transpiler, scope, expr.memberAccessExpr.obj)
     if objC.isNone:
       return none(CExpr)
-    let flatName = objC.get().identifierNode.name & "_" & expr.memberAccessExpr.member
-    result = some(
-      CExpr(
-        kind: CekIdentifier,
-        pos: expr.pos,
-        
-        identifierNode: ast_c.IdentifierNode(name: flatName),
+    # Determine if the object is a pointer type
+    let objType = expr.memberAccessExpr.obj.exprType
+    if objType.kind == TkPointer:
+      # Use arrow operator
+      result = some(
+        CExpr(
+          kind: CekArrowMemberAccess,
+          pos: expr.pos,
+          arrowMemberAccessNode: ast_c.ArrowMemberAccessNode(
+            expr: objC.get(), member: expr.memberAccessExpr.member
+          ),
+        )
       )
-    )
+    else:
+      # Use dot operator
+      result = some(
+        CExpr(
+          kind: CekMemberAccess,
+          pos: expr.pos,
+          memberAccessNode: ast_c.MemberAccessNode(
+            expr: objC.get(), member: expr.memberAccessExpr.member
+          ),
+        )
+      )
   of EkFunctionCall:
     let calleeC = transpileExpr(transpiler, scope, expr.functionCallExpr.callee)
     if calleeC.isNone:
@@ -134,7 +217,6 @@ proc transpileExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CEx
       CExpr(
         kind: CekFunctionCall,
         pos: expr.pos,
-        
         functionCallNode:
           ast_c.FunctionCallNode(callee: calleeC.get(), arguments: argsC),
       )
@@ -143,14 +225,13 @@ proc transpileExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CEx
     let symOpt = scope.findSymbol(expr.identifierExpr.name, expr.pos, AnySymbol)
     if symOpt.isNone:
       transpilerError(
-        transpiler, "Unknown identifier: " & expr.identifierExpr.name, expr.pos
+        transpiler, expr.pos, "Unknown identifier: " & expr.identifierExpr.name
       )
       return none(CExpr)
     result = some(
       CExpr(
         kind: CekIdentifier,
         pos: expr.pos,
-        
         identifierNode: ast_c.IdentifierNode(name: symOpt.get().canonicalName),
       )
     )
@@ -161,7 +242,6 @@ proc transpileExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CEx
         CExpr(
           kind: CekGroupExpr,
           pos: expr.pos,
-          
           groupNode: ast_c.GroupNode(expression: exprC.get()),
         )
       )
@@ -173,7 +253,6 @@ proc transpileExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CEx
       CExpr(
         kind: CekAddressOf,
         pos: expr.pos,
-        
         addressOfNode: ast_c.AddressOfNode(operand: operandC.get()),
       )
     )
@@ -185,7 +264,6 @@ proc transpileExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CEx
       CExpr(
         kind: CekDereference,
         pos: expr.pos,
-        
         dereferenceNode: ast_c.DereferenceNode(operand: operandC.get()),
       )
     )
@@ -194,7 +272,6 @@ proc transpileExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CEx
       CExpr(
         kind: CekIntLiteral,
         pos: expr.pos,
-        
         intLiteralNode: ast_c.IntLiteralNode(value: expr.intLiteralExpr.value),
       )
     )
@@ -203,7 +280,6 @@ proc transpileExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CEx
       CExpr(
         kind: CekUIntLiteral,
         pos: expr.pos,
-        
         uintLiteralNode: ast_c.UIntLiteralNode(value: expr.uintLiteralExpr.value),
       )
     )
@@ -212,7 +288,6 @@ proc transpileExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CEx
       CExpr(
         kind: CekFloatLiteral,
         pos: expr.pos,
-        
         floatLiteralNode: ast_c.FloatLiteralNode(value: expr.floatLiteralExpr.value),
       )
     )
@@ -223,7 +298,6 @@ proc transpileExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CEx
       CExpr(
         kind: CekStringLiteral,
         pos: expr.pos,
-        
         stringLiteralNode: ast_c.StringLiteralNode(value: expr.cStringLiteralExpr.value),
       )
     )
@@ -232,7 +306,6 @@ proc transpileExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CEx
       CExpr(
         kind: CekCharLiteral,
         pos: expr.pos,
-        
         charLiteralNode: ast_c.CharLiteralNode(value: expr.charLiteralExpr.value),
       )
     )
@@ -241,26 +314,23 @@ proc transpileExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CEx
       CExpr(
         kind: CekBoolLiteral,
         pos: expr.pos,
-        
         boolLiteralNode: ast_c.BoolLiteralNode(value: expr.boolLiteralExpr.value),
       )
     )
   of EkNilLiteral:
     result = some(CExpr(kind: CekNullLiteral, pos: expr.pos))
-  of EkType:
-    transpiler.transpilerError(
-      "Type are not values in OverC", expr.pos, "Cannot use type as value"
-    )
-    return none(CExpr)
+  of EkStructLiteral:
+    result = transpileStructLiteral(transpiler, scope, expr)
 
 proc transpileStmt(transpiler: Transpiler, scope: Scope, stmt: Stmt): Option[CStmt] =
   case stmt.kind
   of SkModule:
     discard # handled at file level
   of SkVarDecl:
-    let variableSymbol = scope.findSymbol(stmt.varDeclStmt.identifier, stmt.pos, Variable)
+    let variableSymbol =
+      scope.findSymbol(stmt.varDeclStmt.identifier, stmt.pos, Variable)
     if variableSymbol.isNone:
-      transpilerError(transpiler, "Cannot find variable declaration in scope", stmt.pos)
+      transpilerError(transpiler, stmt.pos, "Cannot find variable declaration in scope")
       return none(CStmt)
     let variable = variableSymbol.get()
     result = transpiler.transpileVariable(scope, variable)
@@ -338,8 +408,45 @@ proc transpileStmt(transpiler: Transpiler, scope: Scope, stmt: Stmt): Option[CSt
         ifStmtNode: ast_c.IfStmtNode(branches: cBranches, elseBranch: cElse),
       )
     )
+  of SkWhileStmt:
+    let whileStmt = stmt.whileStmt
+    let whileScope = scope.children[whileStmt.scopeId]
+    let condC = transpileExpr(transpiler, whileScope, whileStmt.condition)
+    let bodyC = transpileStmt(transpiler, whileScope, whileStmt.body)
+    if condC.isNone or bodyC.isNone:
+      return none(CStmt)
+    result = some(
+      CStmt(
+        kind: CskWhileStmt,
+        pos: stmt.pos,
+        comments: stmt.comments,
+        whileStmtNode: ast_c.WhileStmtNode(condition: condC.get(), body: bodyC.get()),
+      )
+    )
   of SkNop:
     return none(CStmt)
+  of SkStructDecl:
+    let symbol = scope.findSymbol(stmt.structDeclStmt.identifier, stmt.pos, Type)
+    if symbol.isNone:
+      transpilerError(
+        transpiler,
+        stmt.pos,
+        "Cannot find struct declaration in scope",
+        "Struct '" & stmt.structDeclStmt.identifier & "' not found",
+      )
+      return none(CStmt)
+    result = transpileStructDecl(transpiler, symbol.get(), stmt)
+  of SkTypeDecl:
+    let symbol = scope.findSymbol(stmt.typeDeclStmt.identifier, stmt.pos, Type)
+    if symbol.isNone:
+      transpilerError(
+        transpiler,
+        stmt.pos,
+        "Cannot find type declaration in scope",
+        "Type '" & stmt.typeDeclStmt.identifier & "' not found",
+      )
+      return none(CStmt)
+    result = transpileTypeDecl(transpiler, symbol.get(), stmt)
 
 proc transpileFunction(
     transpiler: Transpiler,
@@ -347,60 +454,61 @@ proc transpileFunction(
     function: Symbol,
     declarationOnly: bool = false,
 ): Option[CStmt] =
-  if function.node.annotations["include"].isSome() and
-      function.paramTypes.anyIt(it.kind == TkMeta and it.metaKind == MkCVarArgs):
+  let funDecl = function.declStmt.funDeclStmt
+  if function.declStmt.annotations["include"].isSome() and
+      funDecl.parameters.anyIt(
+        it.paramType.kind == TkMeta and it.paramType.metaKind == MkCVarArgs
+      ):
     return
       CStmt(
         kind: CskDefine,
-        pos: function.node.pos,
-        comments: function.node.comments,
+        pos: function.declStmt.pos,
+        comments: function.declStmt.comments,
         defineNode: ast_c.DefineNode(
           name: function.canonicalName,
           value:
             CExpr(
               kind: CekIdentifier,
-              pos: function.node.pos,
+              pos: function.declStmt.pos,
               identifierNode: ast_c.IdentifierNode(
-                name: function.node.annotations["include", "name"].get()
+                name: function.declStmt.annotations["include", "name"].get()
               ),
             ).some,
         ),
       ).some
   let name = function.canonicalName
-  let returnType = function.returnType.toCType()
+  let returnType = funDecl.returnType.toCType()
   if returnType.isNone:
     transpilerError(
       transpiler,
+      funDecl.identifierPos,
       "Invalid return type for function: " & name,
-      function.node.pos,
       "Metatypes cannot be mapped to C types",
     )
     return none(CStmt)
   let returnTypeC: CType = returnType.get()
-  let isStatic = function.node.annotations["static"].isSome()
-  let isExtern = function.node.annotations["extern"].isSome()
-  let isInline = function.node.annotations["inline"].isSome()
+  let isStatic = function.declStmt.annotations["static"].isSome()
+  let isExtern = function.declStmt.annotations["extern"].isSome()
+  let isInline = function.declStmt.annotations["inline"].isSome()
   var parameters: seq[ast_c.ParameterNode] = @[]
-  for parameter in function.node.funDeclStmt.parameters:
-    let paramType = parameter.paramType.toCType()
+  for param in funDecl.parameters:
+    let paramType = param.paramType.toCType()
     if paramType.isNone:
       transpilerError(
         transpiler,
+        param.namePos,
         "Invalid parameter type for function: " & name,
-        function.node.pos,
-        "Metatypes cannot be mapped to C types",
+        "Metatypes cannot be mapped to C types" & $param.paramType,
       )
       return none(CStmt)
     let paramTypeC: CType = paramType.get()
-    parameters.add(
-      ast_c.ParameterNode(name: parameter.name, paramType: paramTypeC)
-    )
+    parameters.add(ast_c.ParameterNode(name: param.name, paramType: paramTypeC))
   if declarationOnly or isExtern:
     return
       CStmt(
         kind: CskFunctionDecl,
-        pos: function.node.pos,
-        comments: function.node.comments,
+        pos: funDecl.identifierPos,
+        comments: function.declStmt.comments,
         functionDeclNode: ast_c.FunctionDeclNode(
           name: name,
           returnType: returnTypeC,
@@ -410,66 +518,36 @@ proc transpileFunction(
           isInline: isInline,
         ),
       ).some
-  let body = function.node.funDeclStmt.body
+  let body = funDecl.body
   if body.isNone:
     transpilerError(
       transpiler,
+      funDecl.identifierPos,
       "Function body is None for function: " & name,
-      function.node.pos,
       "Function must have a body",
     )
     return none(CStmt)
-
-  let bodyNode = transpileStmt(transpiler, scope, body.get())
+  let bodyNode =
+    transpileStmt(transpiler, scope.children[funDecl.identifier], body.get())
   if bodyNode.isNone:
-    if function.node.annotations["include"].isNone:
-      transpilerError(
-        transpiler,
-        "Invalid function body for function: " & name,
-        function.node.pos,
-        "Function body must be a block statement",
-      )
-      return none(CStmt)
-    else:
-      return
-        CStmt(
-          kind: CskReturnStmt,
-          pos: function.node.pos,
-          comments: function.node.comments,
-          returnStmtNode: ast_c.ReturnStmtNode(
-            expression:
-              CExpr(
-                kind: CekFunctionCall,
-                pos: function.node.pos,
-                functionCallNode: ast_c.FunctionCallNode(
-                  callee: CExpr(
-                    kind: CekIdentifier,
-                    pos: function.node.pos,
-                    identifierNode: ast_c.IdentifierNode(name: name),
-                  ),
-                  arguments: function.node.funDeclStmt.parameters.map(
-                    (it) =>
-                      CExpr(
-                        kind: CekIdentifier,
-                        pos: function.node.pos,
-                        identifierNode: ast_c.IdentifierNode(name: it.name),
-                      )
-                  ),
-                ),
-              ).some
-          ),
-        ).some
+    transpilerError(
+      transpiler,
+      funDecl.identifierPos,
+      "Invalid function body for function: " & name,
+      "Function body must be a block statement",
+    )
+    return none(CStmt)
   let bodyC: CStmt = bodyNode.get()
   return
     CStmt(
       kind: CskFunctionDef,
-      pos: function.node.pos,
-      comments: function.node.comments,
+      pos: funDecl.identifierPos,
+      comments: function.declStmt.comments,
       functionDefNode: ast_c.FunctionDefNode(
         declaration: CStmt(
           kind: CskFunctionDecl,
-          pos: function.node.pos,
-          comments: function.node.comments,
+          pos: funDecl.identifierPos,
+          comments: function.declStmt.comments,
           functionDeclNode: ast_c.FunctionDeclNode(
             name: name,
             returnType: returnTypeC,
@@ -490,25 +568,26 @@ proc transpileVariable(
     declarationOnly: bool = false,
 ): Option[CStmt] =
   let name = variable.canonicalName
-  let varType = variable.varType.toCType()
+  let varType = variable.declStmt.varDeclStmt.typeAnnotation.toCType()
   if varType.isNone:
     transpilerError(
       transpiler,
-      "Invalid variable type for variable: " & name,
-      variable.node.pos,
+      variable.declStmt.pos,
+      "Invalid variable type '" & $variable.declStmt.varDeclStmt.typeAnnotation &
+        "' for variable: " & name,
       "Metatypes cannot be mapped to C types",
     )
     return none(CStmt)
   let varTypeC: CType = varType.get()
-  let isStatic = variable.node.annotations["static"].isSome()
-  let isExtern = variable.node.annotations["extern"].isSome()
-  let isVolatile = variable.node.annotations["volatile"].isSome()
-  let isConst = variable.node.varDeclStmt.isReadOnly
+  let isStatic = variable.declStmt.annotations["static"].isSome()
+  let isExtern = variable.declStmt.annotations["extern"].isSome()
+  let isVolatile = variable.declStmt.annotations["volatile"].isSome()
+  let isConst = variable.declStmt.varDeclStmt.isReadOnly
   let initializer =
-    if declarationOnly or isExtern or variable.node.varDeclStmt.initializer.isNone:
+    if declarationOnly or isExtern or variable.declStmt.varDeclStmt.initializer.isNone:
       none(CExpr)
     else:
-      let init = variable.node.varDeclStmt.initializer
+      let init = variable.declStmt.varDeclStmt.initializer
       let initNode = transpileExpr(transpiler, scope, init.get())
       if initNode.isNone:
         return none(CStmt)
@@ -516,8 +595,8 @@ proc transpileVariable(
   return
     CStmt(
       kind: CskVarDecl,
-      pos: variable.node.pos,
-      comments: variable.node.comments,
+      pos: variable.declStmt.pos,
+      comments: variable.declStmt.comments,
       varDeclNode: ast_c.VarDeclNode(
         name: name,
         varType: varTypeC,
@@ -539,15 +618,30 @@ proc transpileHFile(transpiler: Transpiler, globalSymbols: seq[Symbol]): Option[
       ].toHashSet()
     ),
   )
+  # Add struct/type definitions before declarations
   for symbol in globalSymbols:
-    if (symbol.kind == Function and not symbol.node.funDeclStmt.isPublic) or
-        (symbol.kind == Variable and not symbol.node.varDeclStmt.isPublic):
+    if symbol.kind == Type and symbol.isPublic:
+      let typeNode = symbol.declStmt
+      if typeNode.kind == SkStructDecl:
+        let structDef = transpileStructDecl(transpiler, symbol, typeNode)
+        if structDef.isNone:
+          return none(CStmt)
+        moduleH.translationUnitNode.declarations.add(structDef.get())
+      elif typeNode.kind == SkTypeDecl:
+        let typedefDef = transpileTypeDecl(transpiler, symbol, typeNode)
+        if typedefDef.isNone:
+          return none(CStmt)
+        moduleH.translationUnitNode.declarations.add(typedefDef.get())
+  # Add declarations
+  for symbol in globalSymbols:
+    if (symbol.kind == Function and not symbol.declStmt.funDeclStmt.isPublic) or
+        (symbol.kind == Variable and not symbol.declStmt.varDeclStmt.isPublic):
       # Only include public functions and variables
       continue
-    let headerOpt = symbol.node.annotations["include", "from"]
+    let headerOpt = symbol.declStmt.annotations["include", "from"]
     if headerOpt.isSome() and symbol.kind == Function and
-        symbol.paramTypes[^1].kind == TkMeta and
-        symbol.paramTypes[^1].metaKind == MkCVarArgs:
+        symbol.declStmt.funDeclStmt.parameters[^1].paramType.kind == TkMeta and
+        symbol.declStmt.funDeclStmt.parameters[^1].paramType.metaKind == MkCVarArgs:
       # Only include if it's a varargs function, otherwise it's included in the C file
       let header: string = headerOpt.get()
       let isSystem = header.startsWith("<") and header.endsWith(">")
@@ -564,14 +658,6 @@ proc transpileHFile(transpiler: Transpiler, globalSymbols: seq[Symbol]): Option[
       if variable.isNone:
         return none(CStmt)
       moduleH.translationUnitNode.declarations.add(variable.get())
-    else:
-      transpilerError(
-        transpiler,
-        "Invalid symbol kind for header: " & symbol.canonicalName,
-        symbol.node.pos,
-        "Remember to implement " & $symbol.kind,
-      )
-      return none(CStmt)
   result =
     CStmt(
       kind: CskIfNotDef,
@@ -596,18 +682,19 @@ proc generateMainFunction(transpiler: Transpiler): Option[CStmt] =
     return none(CStmt)
   let entry = transpiler.entryPoint.get()
   let entryName = entry.canonicalName
-  let paramTypes = entry.paramTypes
-  let returnTypeOpt = entry.returnType.toCType()
+  let funDecl = entry.declStmt.funDeclStmt
+  let paramTypes = funDecl.parameters.mapIt(it.paramType)
+  let returnTypeOpt = funDecl.returnType.toCType()
   if returnTypeOpt.isNone:
     transpilerError(
-      transpiler, "Entry point return type cannot be mapped to C", entry.node.pos
+      transpiler, entry.declStmt.pos, "Entry point return type cannot be mapped to C"
     )
     return none(CStmt)
   let returnType = returnTypeOpt.get()
   # Only allow 0, 2, or 3 parameters
   if not (paramTypes.len == 0 or paramTypes.len == 2 or paramTypes.len == 3):
     transpilerError(
-      transpiler, "Entry point must have 0, 2, or 3 parameters", entry.node.pos
+      transpiler, entry.declStmt.pos, "Entry point must have 0, 2, or 3 parameters"
     )
     return none(CStmt)
   # Only allow return type int or void
@@ -616,7 +703,9 @@ proc generateMainFunction(transpiler: Transpiler): Option[CStmt] =
     (returnType.primitive == Int64T or returnType.primitive == Int32T)
   let isVoid = returnType.kind == CkPrimitive and returnType.primitive == VoidT
   if not (isInt or isVoid):
-    transpilerError(transpiler, "Entry point must return Int or Void", entry.node.pos)
+    transpilerError(
+      transpiler, entry.declStmt.pos, "Entry point must return Int or Void"
+    )
     return none(CStmt)
   # Build parameters for main
   var mainParams: seq[ast_c.ParameterNode] = @[]
@@ -706,19 +795,32 @@ proc transpileCFile(
   var moduleC = CStmt(
     kind: CskTranslationUnit,
     translationUnitNode: ast_c.TranslationUnitNode(
-      includes:
-        [ast_c.IncludeNode(isSystem: false, file: transpiler.file.name & ".h")].toHashSet()
+      includes: [ast_c.IncludeNode(isSystem: false, file: transpiler.file.name & ".h")].toHashSet()
     ),
   )
+  # Add struct/type definitions before declarations
+  for symbol in globalSymbols:
+    if symbol.kind == Type and not symbol.isPublic:
+      let typeNode = symbol.declStmt
+      if typeNode.kind == SkStructDecl:
+        let structDef = transpileStructDecl(transpiler, symbol, typeNode)
+        if structDef.isNone:
+          return none(CStmt)
+        moduleC.translationUnitNode.declarations.add(structDef.get())
+      elif typeNode.kind == SkTypeDecl:
+        let typedefDef = transpileTypeDecl(transpiler, symbol, typeNode)
+        if typedefDef.isNone:
+          return none(CStmt)
+        moduleC.translationUnitNode.declarations.add(typedefDef.get())
   # Add declarations and includes to the C file
   for symbol in globalSymbols:
-    if (symbol.kind == Function and symbol.node.funDeclStmt.isPublic) or
-        (symbol.kind == Variable and symbol.node.varDeclStmt.isPublic):
+    if (symbol.kind == Function and symbol.declStmt.funDeclStmt.isPublic) or
+        (symbol.kind == Variable and symbol.declStmt.varDeclStmt.isPublic):
       continue
-    let headerOpt = symbol.node.annotations["include", "from"]
+    let headerOpt = symbol.declStmt.annotations["include", "from"]
     if headerOpt.isSome() and symbol.kind == Function and
-        symbol.paramTypes[^1].kind == TkMeta and
-        symbol.paramTypes[^1].metaKind == MkCVarArgs:
+        symbol.declStmt.funDeclStmt.parameters[^1].paramType.kind == TkMeta and
+        symbol.declStmt.funDeclStmt.parameters[^1].paramType.metaKind == MkCVarArgs:
       # Only include if it's a varargs function, otherwise it's included in the C file
       let header: string = headerOpt.get()
       let isSystem = header.startsWith("<") and header.endsWith(">")
@@ -735,14 +837,6 @@ proc transpileCFile(
       if variable.isNone:
         return none(CStmt)
       moduleC.translationUnitNode.declarations.add(variable.get())
-    else:
-      transpilerError(
-        transpiler,
-        "Invalid symbol kind for c file: " & symbol.canonicalName,
-        symbol.node.pos,
-        "Remember to implement " & $symbol.kind,
-      )
-      return none(CStmt)
 
   # Add implementations to the C file
   for symbol in globalSymbols:
@@ -756,14 +850,6 @@ proc transpileCFile(
       if variable.isNone:
         return none(CStmt)
       moduleC.translationUnitNode.declarations.add(variable.get())
-    else:
-      transpilerError(
-        transpiler,
-        "Invalid symbol kind for c file: " & symbol.canonicalName,
-        symbol.node.pos,
-        "Remember to implement " & $symbol.kind,
-      )
-      return none(CStmt)
 
   # Add the main function if entry point is set
   let mainFunc = generateMainFunction(transpiler)

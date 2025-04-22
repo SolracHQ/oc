@@ -1,4 +1,4 @@
-import ../types/[file_info, position, scope, ast, types, token]
+import ../types/[file_info, position, scope, ast, types]
 import ../reporter
 import std/options
 import std/tables
@@ -7,23 +7,23 @@ import std/tables
 proc isIntFamily*(typ: Type): bool =
   ## Returns true if the type is from the signed integer family
   (typ.kind == TkPrimitive and typ.primitive in {Int, Int8, Int16, Int32, Int64}) or
-    (typ.kind == TkMeta and typ.metaKind == MkIntInfer)
+    (typ.kind == TkMeta and typ.metaKind == MkAnyInt)
 
 proc isUIntFamily*(typ: Type): bool =
   ## Returns true if the type is from the unsigned integer family
   (typ.kind == TkPrimitive and typ.primitive in {UInt, UInt8, UInt16, UInt32, UInt64}) or
-    (typ.kind == TkMeta and typ.metaKind == MkUIntInfer)
+    (typ.kind == TkMeta and typ.metaKind == MkAnyUInt)
 
 proc isFloatFamily*(typ: Type): bool =
   ## Returns true if the type is from the floating-point family
   (typ.kind == TkPrimitive and typ.primitive in {Float, Float32, Float64}) or
-    (typ.kind == TkMeta and typ.metaKind == MkFloatInfer)
+    (typ.kind == TkMeta and typ.metaKind == MkAnyFloat)
 
 proc isConcreteType*(typ: Type): bool =
   ## Returns true if the type is concrete (not inferred)
   typ.kind == TkPrimitive or (
     typ.kind == TkMeta and
-    typ.metaKind notin {MkIntInfer, MkFloatInfer, MkUIntInfer, MkToInfer}
+    typ.metaKind notin {MkAnyInt, MkAnyFloat, MkAnyUInt, MkNamedType}
   )
 
 proc resolveInferredType*(typ: Type): Type =
@@ -31,11 +31,11 @@ proc resolveInferredType*(typ: Type): Type =
   case typ.kind
   of TkMeta:
     case typ.metaKind
-    of MkIntInfer:
+    of MkAnyInt:
       result = Type(kind: TkPrimitive, primitive: Int)
-    of MkFloatInfer:
+    of MkAnyFloat:
       result = Type(kind: TkPrimitive, primitive: Float)
-    of MkUIntInfer:
+    of MkAnyUInt:
       result = Type(kind: TkPrimitive, primitive: UInt)
     else:
       result = typ
@@ -50,7 +50,7 @@ proc inferenceError*(
     inferencer: TypeInferencer, position: Position, msg: string, hint: string = ""
 ) =
   ## Prints an error message for the type inferencer
-  logError("TypeInferencer", msg, position)
+  logError("TypeInferencer", position, msg, hint)
   inferencer.hasError = true
 
 proc newTypeInferencer*(fileInfo: FileInfo): TypeInferencer =
@@ -59,233 +59,37 @@ proc newTypeInferencer*(fileInfo: FileInfo): TypeInferencer =
   result.fileInfo = fileInfo
   result.hasError = false
 
+proc resolveType*(
+    checker: TypeInferencer, scope: Scope, `type`: Type, pos: Position
+): Type =
+  ## Resolves a type to its actual representation
+  var current = `type`
+  var currentPos = pos
+  # Resolve named types
+  while current.kind == TkMeta and current.metaKind == MkNamedType:
+    let symbolOpt = scope.findSymbol(current.name, currentPos, Type)
+    if symbolOpt.isNone:
+      checker.inferenceError(
+        currentPos,
+        "Unknown type '" & current.name & "'",
+        "Declare the type before using it",
+      )
+      return current
+    let symbol = symbolOpt.get()
+    current = symbol.declStmt.typeDeclStmt.typeAnnotation
+  # If struct, resolve all member types recursively
+  if current.kind == TkStruct:
+    for name, member in current.structType.members:
+      let resolvedMemberType = checker.resolveType(scope, member.typ, pos)
+      if member.typ != resolvedMemberType:
+        current.structType.members[name].typ = resolvedMemberType
+  return current
+
 proc inferExpressionType*(inferencer: TypeInferencer, scope: Scope, expr: Expr): Type =
   ## Infers the type of an expression node
-  case expr.kind
-  of EkIntLiteral:
-    result = Type(kind: TkMeta, metaKind: MkIntInfer)
-  of EkUIntLiteral:
-    result = Type(kind: TkMeta, metaKind: MkUIntInfer)
-  of EkFloatLiteral:
-    result = Type(kind: TkMeta, metaKind: MkFloatInfer)
-  of EkStringLiteral:
-    result = Type(kind: TkPrimitive, primitive: String)
-  of EkCStringLiteral:
-    result = Type(kind: TkPrimitive, primitive: CString)
-  of EkCharLiteral:
-    result = Type(kind: TkPrimitive, primitive: Char)
-  of EkBoolLiteral:
-    result = Type(kind: TkPrimitive, primitive: Bool)
-  of EkNilLiteral:
-    result = Type(kind: TkMeta, metaKind: MkUnresolved, name: "nil")
-  of EkIdentifier:
-    let identifier = expr.identifierExpr.name
-    let symbolOpt = scope.findSymbol(identifier, expr.pos, AnySymbol)
-    if symbolOpt.isNone:
-      inferencer.inferenceError(
-        expr.pos, "Cannot infer type: undeclared identifier '" & identifier & "'"
-      )
-      result = Type(kind: TkMeta, metaKind: MkResolveError, name: "undeclared_identifier")
-    else:
-      let symbol = symbolOpt.get()
-      case symbol.kind
-      of Variable:
-        if not symbol.isInitialized and not symbol.isReadOnly:
-          inferencer.inferenceError(
-            expr.pos,
-            "Cannot infer type from uninitialized variable '" & identifier & "'",
-          )
-          result = Type(kind: TkMeta, metaKind: MkResolveError, name: "uninitialized_variable")
-        else:
-          result = symbol.varType
-      of Function:
-        inferencer.inferenceError(
-          expr.pos,
-          "Cannot use function '" & identifier & "' as a value",
-          "This will be supported in the future.",
-        )
-        result = Type(kind: TkMeta, metaKind: MkResolveError, name: "function_as_value")
-      of Type:
-        result = symbol.typeRepr
-  of EkFunctionCall:
-    let callee = expr.functionCallExpr.callee
-    if callee.kind == EkIdentifier:
-      let funcName = callee.identifierExpr.name
-      let symbolOpt = scope.findSymbol(funcName, callee.pos, {Function, Variable})
-      if symbolOpt.isNone:
-        inferencer.inferenceError(
-          expr.pos, "Call to undefined function '" & funcName & "'"
-        )
-        result = Type(kind: TkMeta, metaKind: MkResolveError, name: "undefined_function")
-      elif symbolOpt.get().kind != Function:
-        inferencer.inferenceError(
-          expr.pos,
-          "Cannot call non-function '" & funcName & "'",
-          "callable types are not yet supported",
-        )
-        result = Type(kind: TkMeta, metaKind: MkResolveError, name: "non_function_call")
-      else:
-        result = symbolOpt.get().returnType
-    else:
-      inferencer.inferenceError(expr.pos, "Complex function calls not yet supported")
-      result = Type(kind: TkMeta, metaKind: MkResolveError, name: "unsupported_call")
-  of EkGroupExpr:
-    result = inferExpressionType(inferencer, scope, expr.groupExpr.expression)
-  of EkUnaryExpr:
-    let operand = inferExpressionType(inferencer, scope, expr.unaryOpExpr.operand)
-    case expr.unaryOpExpr.operator
-    of TkMinus:
-      if operand.isIntFamily or operand.isFloatFamily or operand.isUIntFamily:
-        result = operand
-      else:
-        inferencer.inferenceError(
-          expr.pos, "Unary " & $expr.unaryOpExpr.operator & " requires numeric operand"
-        )
-        result = Type(kind: TkMeta, metaKind: MkResolveError, name: "type_mismatch")
-    of TkBang:
-      if operand.kind == TkPrimitive and operand.primitive == Bool:
-        result = Type(kind: TkPrimitive, primitive: Bool)
-      else:
-        inferencer.inferenceError(expr.pos, "Logical negation requires boolean operand")
-        result = Type(kind: TkMeta, metaKind: MkResolveError, name: "non_boolean_negation")
-    else:
-      inferencer.inferenceError(
-        expr.pos, "Unsupported unary operator: " & $expr.unaryOpExpr.operator
-      )
-      result = Type(kind: TkMeta, metaKind: MkResolveError, name: "unsupported_unary")
-  of EkLogicalExpr:
-    let leftType = inferExpressionType(inferencer, scope, expr.binaryOpExpr.left)
-    let rightType = inferExpressionType(inferencer, scope, expr.binaryOpExpr.right)
-    if leftType.kind != TkPrimitive or leftType.primitive != Bool:
-      inferencer.inferenceError(
-        expr.binaryOpExpr.left.pos, "Logical expression requires boolean operands"
-      )
-      result = Type(kind: TkMeta, metaKind: MkResolveError, name: "non_boolean_logical")
-    elif rightType.kind != TkPrimitive or rightType.primitive != Bool:
-      inferencer.inferenceError(
-        expr.binaryOpExpr.right.pos, "Logical expression requires boolean operands"
-      )
-      result = Type(kind: TkMeta, metaKind: MkResolveError, name: "non_boolean_logical")
-    else:
-      result = Type(kind: TkPrimitive, primitive: Bool)
-  of EkEqualityExpr:
-    let leftType = inferExpressionType(inferencer, scope, expr.binaryOpExpr.left)
-    let rightType = inferExpressionType(inferencer, scope, expr.binaryOpExpr.right)
-    result = Type(kind: TkPrimitive, primitive: Bool)
-  of EkComparisonExpr:
-    let leftType = inferExpressionType(inferencer, scope, expr.binaryOpExpr.left)
-    let rightType = inferExpressionType(inferencer, scope, expr.binaryOpExpr.right)
-    if leftType == rightType:
-      result = Type(kind: TkPrimitive, primitive: Bool)
-    elif (isIntFamily(leftType) and isIntFamily(rightType)) or
-        (isFloatFamily(leftType) and isFloatFamily(rightType)) or
-        (isUIntFamily(leftType) and isUIntFamily(rightType)):
-      result = Type(kind: TkPrimitive, primitive: Bool)
-    else:
-      inferencer.inferenceError(
-        expr.pos,
-        "Type mismatch in comparison: " & $leftType & " cannot be compared with " &
-          $rightType,
-      )
-      result = Type(kind: TkMeta, metaKind: MkResolveError, name: "comparison_type_mismatch")
-  of EkAdditiveExpr, EkMultiplicativeExpr:
-    let leftType = inferExpressionType(inferencer, scope, expr.binaryOpExpr.left)
-    let rightType = inferExpressionType(inferencer, scope, expr.binaryOpExpr.right)
-    if leftType.kind == TkMeta and rightType.kind == TkMeta and
-        leftType.metaKind == rightType.metaKind and
-        leftType.metaKind in {MkIntInfer, MkFloatInfer, MkUIntInfer}:
-      result = leftType
-    elif isIntFamily(leftType) and isIntFamily(rightType):
-      if isConcreteType(leftType) and isConcreteType(rightType):
-        if leftType.primitive == rightType.primitive:
-          result = leftType
-        else:
-          inferencer.inferenceError(
-            expr.pos,
-            "Type mismatch in arithmetic operation: " & $leftType & " and " & $rightType &
-              " (implicit conversion not allowed)",
-          )
-          result = Type(kind: TkMeta, metaKind: MkResolveError, name: "type_mismatch")
-      elif isConcreteType(leftType):
-        result = leftType
-      else:
-        result = rightType
-    elif isFloatFamily(leftType) and isFloatFamily(rightType):
-      if isConcreteType(leftType) and isConcreteType(rightType):
-        if leftType.primitive == rightType.primitive:
-          result = leftType
-        else:
-          inferencer.inferenceError(
-            expr.pos,
-            "Type mismatch in arithmetic operation: " & $leftType & " and " & $rightType &
-              " (implicit conversion not allowed)",
-          )
-          result = Type(kind: TkMeta, metaKind: MkResolveError, name: "type_mismatch")
-      elif isConcreteType(leftType):
-        result = leftType
-      else:
-        result = rightType
-    elif (isIntFamily(leftType) and isFloatFamily(rightType)) or
-        (isFloatFamily(leftType) and isIntFamily(rightType)):
-      inferencer.inferenceError(
-        expr.pos,
-        "Type mismatch in arithmetic operation: " & $leftType & " and " & $rightType &
-          " (int and float types cannot be mixed)",
-      )
-      result = Type(kind: TkMeta, metaKind: MkResolveError, name: "type_family_mismatch")
-    elif (isIntFamily(leftType) and isUIntFamily(rightType)) or
-        (isUIntFamily(leftType) and isIntFamily(rightType)):
-      inferencer.inferenceError(
-        expr.pos,
-        "Type mismatch in arithmetic operation: " & $leftType & " and " & $rightType &
-          " (int and uint types cannot be mixed)",
-      )
-      result = Type(kind: TkMeta, metaKind: MkResolveError, name: "type_family_mismatch")
-    elif (isFloatFamily(leftType) and isUIntFamily(rightType)) or
-        (isUIntFamily(leftType) and isFloatFamily(rightType)):
-      inferencer.inferenceError(
-        expr.pos,
-        "Type mismatch in arithmetic operation: " & $leftType & " and " & $rightType &
-          " (float and uint types cannot be mixed)",
-      )
-      result = Type(kind: TkMeta, metaKind: MkResolveError, name: "type_family_mismatch")
-    else:
-      inferencer.inferenceError(expr.pos, "Arithmetic operations require numeric types")
-      result = Type(kind: TkMeta, metaKind: MkResolveError, name: "non_numeric_arithmetic")
-  of EkAssignment:
-    result = inferExpressionType(inferencer, scope, expr.assignmentExpr.value)
-  of EkMemberAccess:
-    inferencer.inferenceError(
-      expr.pos, "Member access type inference not yet supported"
-    )
-    result = Type(kind: TkMeta, metaKind: MkResolveError, name: "unsupported_member_access")
-  of EkAddressOfExpr:
-    let operand = expr.addressOfExpr.operand
-    if operand.kind != EkIdentifier:
-      inferencer.inferenceError(expr.pos, "Address-of operator requires variable")
-      result = Type(kind: TkMeta, metaKind: MkResolveError, name: "address_of_non_variable")
-    let symbol = scope.findSymbol(operand.identifierExpr.name, expr.pos, Variable)
-    if symbol.isNone:
-      inferencer.inferenceError(
-        expr.pos,
-        "Cannot take address of undeclared identifier '" & operand.identifierExpr.name & "'",
-      )
-      result = Type(kind: TkMeta, metaKind: MkResolveError, name: "address_of_undeclared")
-    let operandType = inferExpressionType(inferencer, scope, operand)
-    if operandType.kind == TkMeta:
-      inferencer.inferenceError(expr.pos, "Cannot take address of a variable with a Meta Value", "This should never happen")
-      result = Type(kind: TkMeta, metaKind: MkResolveError, name: "address_of_non_variable")
-    else:
-      result = newPointerType(operandType, symbol.get().isReadOnly)
-  of EkDerefExpr:
-    let operandType = inferExpressionType(inferencer, scope, expr.derefExpr.operand)
-    if operandType.kind == TkPointer:
-      result = operandType.pointerTo[]
-    else:
-      inferencer.inferenceError(expr.pos, "Dereference operator requires pointer type")
-      result = Type(kind: TkMeta, metaKind: MkResolveError, name: "dereference_non_pointer")
-  of EkType:
-    result = expr.typeExpr
+  return expr.exprType
+
+proc analyzeTypeInference*(inferencer: TypeInferencer, scope: Scope, expr: Expr)
 
 proc analyzeTypeInference*(inferencer: TypeInferencer, scope: Scope, stmt: Stmt) =
   ## Infer type of variables based on their expressions
@@ -309,32 +113,52 @@ proc analyzeTypeInference*(inferencer: TypeInferencer, scope: Scope, stmt: Stmt)
           inferExpressionType(inferencer, scope, varDecl.initializer.get())
         if inferredType.kind == TkMeta:
           case inferredType.metaKind
-          of MkIntInfer:
+          of MkAnyInt:
             inferredType = Type(kind: TkPrimitive, primitive: Int)
-          of MkFloatInfer:
+          of MkAnyFloat:
             inferredType = Type(kind: TkPrimitive, primitive: Float)
-          of MkUIntInfer:
+          of MkAnyUInt:
             inferredType = Type(kind: TkPrimitive, primitive: UInt)
           else:
             discard
         let symbolOpt = scope.findSymbol(varDecl.identifier, stmt.pos, Variable)
         if symbolOpt.isSome:
           inferredType.hasAddress = true
-          symbolOpt.get().varType = inferredType
           stmt.varDeclStmt.typeAnnotation = inferredType
         else:
           inferencer.inferenceError(
             stmt.pos,
             "Internal error: symbol '" & varDecl.identifier & "' not found in scope",
           )
-  of SkExprStmt: discard
-  of SkReturnStmt: discard
+  of SkTypeDecl:
+    # No type inference needed for type declarations, but could check typeAnnotation
+    discard
+  of SkStructDecl:
+    # No type inference needed for struct declarations, but could check member types
+    discard
+  of SkExprStmt:
+    # Expression statements do not need type inference
+    let expr = stmt.exprStmt.expression
+    analyzeTypeInference(inferencer, scope, expr)
+  of SkReturnStmt:
+    discard
   of SkFunDecl:
     let funDecl = stmt.funDeclStmt
     if funDecl.body.isSome:
       if scope.children.hasKey(funDecl.identifier):
         let functionScope = scope.children[funDecl.identifier]
         analyzeTypeInference(inferencer, functionScope, funDecl.body.get())
+    var symbol = scope.findSymbol(funDecl.identifier, stmt.pos, Function)
+    if symbol.isNone:
+      inferencer.inferenceError(
+        stmt.pos,
+        "Internal error: function '" & funDecl.identifier & "' not found in scope",
+      )
+    else:
+      for i, param in funDecl.parameters:
+        if param.paramType.kind == TkMeta and param.paramType.metaKind == MkToInfer:
+          funDecl.parameters[i].paramType =
+            resolveType(inferencer, scope, param.paramType, stmt.pos)
   of SkBlockStmt:
     let blockScope = scope.children[stmt.blockStmt.blockId]
     for s in stmt.blockStmt.statements:
@@ -347,6 +171,10 @@ proc analyzeTypeInference*(inferencer: TypeInferencer, scope: Scope, stmt: Stmt)
       let elseBranch = stmt.ifStmt.elseBranch.get()
       let elseScope = scope.children[elseBranch.scopeId]
       analyzeTypeInference(inferencer, elseScope, elseBranch.body)
+  of SkWhileStmt:
+    let whileStmt = stmt.whileStmt
+    let whileScope = scope.children[whileStmt.scopeId]
+    analyzeTypeInference(inferencer, whileScope, whileStmt.body)
   of SkNop:
     discard
 
@@ -354,32 +182,53 @@ proc analyzeTypeInference*(inferencer: TypeInferencer, scope: Scope, stmt: Stmt)
 proc analyzeTypeInference*(inferencer: TypeInferencer, scope: Scope, expr: Expr) =
   case expr.kind
   of EkAssignment:
-    let identifier = expr.assignmentExpr.identifier
-    var valueType = inferExpressionType(inferencer, scope, expr.assignmentExpr.value)
-    let symbolOpt = scope.findSymbol(identifier, expr.pos, Variable)
-    if symbolOpt.isSome:
-      let symbol = symbolOpt.get()
-      if symbol.varType.kind == TkMeta and symbol.varType.metaKind == MkToInfer:
-        if valueType.kind == TkMeta:
-          case valueType.metaKind
-          of MkIntInfer:
-            valueType = Type(kind: TkPrimitive, primitive: Int)
-          of MkFloatInfer:
-            valueType = Type(kind: TkPrimitive, primitive: Float)
-          of MkUIntInfer:
-            valueType = Type(kind: TkPrimitive, primitive: UInt)
-          else:
-            discard
-        symbol.varType = valueType
-      elif (isIntFamily(symbol.varType) and isFloatFamily(valueType)) or
-          (isFloatFamily(symbol.varType) and isIntFamily(valueType)):
-        inferencer.inferenceError(
-          expr.pos,
-          "Type mismatch in assignment: cannot assign " & $valueType & " to " &
-            $symbol.varType,
-        )
-    analyzeTypeInference(inferencer, scope, expr.assignmentExpr.value)
-  of EkLogicalExpr, EkEqualityExpr, EkComparisonExpr, EkAdditiveExpr, EkMultiplicativeExpr:
+    let left = expr.assignmentExpr.left
+    let value = expr.assignmentExpr.value
+    var valueType = inferExpressionType(inferencer, scope, value)
+    # If left is an identifier, handle type inference for variable
+    if left.kind == EkIdentifier:
+      let identifier = left.identifierExpr.name
+      let symbolOpt = scope.findSymbol(identifier, expr.pos, Variable)
+      if symbolOpt.isSome:
+        let symbol = symbolOpt.get()
+        let varDecl = symbol.declStmt.varDeclStmt
+        if varDecl.typeAnnotation.kind == TkMeta and
+            varDecl.typeAnnotation.metaKind == MkToInfer:
+          if valueType.kind == TkMeta:
+            case valueType.metaKind
+            of MkAnyInt:
+              valueType = Type(kind: TkPrimitive, primitive: Int)
+            of MkAnyFloat:
+              valueType = Type(kind: TkPrimitive, primitive: Float)
+            of MkAnyUInt:
+              valueType = Type(kind: TkPrimitive, primitive: UInt)
+            else:
+              discard
+          varDecl.typeAnnotation = valueType
+        elif varDecl.typeAnnotation.kind == TkMeta and
+            varDecl.typeAnnotation.metaKind in {MkAnyInt, MkAnyFloat, MkAnyUInt}:
+          # Int, Uint or Float by default
+          if varDecl.typeAnnotation.metaKind == MkAnyInt:
+            varDecl.typeAnnotation = Type(kind: TkPrimitive, primitive: Int)
+          elif varDecl.typeAnnotation.metaKind == MkAnyFloat:
+            varDecl.typeAnnotation = Type(kind: TkPrimitive, primitive: Float)
+          elif varDecl.typeAnnotation.metaKind == MkAnyUInt:
+            varDecl.typeAnnotation = Type(kind: TkPrimitive, primitive: UInt)
+        elif (isIntFamily(varDecl.typeAnnotation) and isFloatFamily(valueType)) or
+            (isFloatFamily(varDecl.typeAnnotation) and isIntFamily(valueType)):
+          inferencer.inferenceError(
+            expr.pos,
+            "Type mismatch in assignment: cannot assign " & $valueType & " to " &
+              $varDecl.typeAnnotation,
+          )
+    # Always analyze left and right expressions for type inference
+    analyzeTypeInference(inferencer, scope, left)
+    analyzeTypeInference(inferencer, scope, value)
+  of EkIdentifier:
+    # No type inference needed for identifiers
+    discard
+  of EkLogicalExpr, EkEqualityExpr, EkComparisonExpr, EkAdditiveExpr,
+      EkMultiplicativeExpr:
     analyzeTypeInference(inferencer, scope, expr.binaryOpExpr.left)
     analyzeTypeInference(inferencer, scope, expr.binaryOpExpr.right)
   of EkUnaryExpr:
@@ -396,7 +245,11 @@ proc analyzeTypeInference*(inferencer: TypeInferencer, scope: Scope, expr: Expr)
     analyzeTypeInference(inferencer, scope, expr.functionCallExpr.callee)
     for arg in expr.functionCallExpr.arguments:
       analyzeTypeInference(inferencer, scope, arg)
+  of EkStructLiteral:
+    # Analyze all member expressions
+    for member in expr.structLiteralExpr.members:
+      analyzeTypeInference(inferencer, scope, member.value)
   # Literals and identifiers do not need further analysis
-  of EkIntLiteral, EkIdentifier, EkUIntLiteral, EkFloatLiteral, EkStringLiteral,
-      EkCStringLiteral, EkCharLiteral, EkBoolLiteral, EkNilLiteral, EkType:
+  of EkIntLiteral, EkUIntLiteral, EkFloatLiteral, EkStringLiteral, EkCStringLiteral,
+      EkCharLiteral, EkBoolLiteral, EkNilLiteral:
     discard

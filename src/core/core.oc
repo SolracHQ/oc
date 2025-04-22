@@ -1,0 +1,4 @@
+pub struct String {
+  ptr: *Char,
+  len: Int,
+}

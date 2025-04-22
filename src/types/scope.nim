@@ -1,6 +1,6 @@
-import types
 import position
 import ast
+import types
 import std/tables
 import std/options
 
@@ -18,18 +18,14 @@ type
   Symbol* = ref object
     name*: string
     canonicalName*: string # The C name of the symbol
-    node*: Stmt
+    declStmt*: Stmt # The declaration statement of the symbol
+    scope*: Scope # The scope in which the symbol is declared
     case kind*: SymbolKind
     of Variable:
-      varType*: Type
-      isGlobal*: bool
       isInitialized*: bool
-    of Function:
-      returnType*: Type
-      paramTypes*: seq[Type]
-      scope*: Scope
+    of Function: discard
     of Type:
-      typeRepr*: Type
+      typeRepr*: Type # The type representation of the symbol
 
   Scope* = ref object
     kind*: ScopeKind
@@ -51,7 +47,7 @@ proc calculateCanonicalName*(scope: Scope, symbol: Symbol): string =
   ## Canonical name is __{symbol_name}_at_{scope_name}_at_{parent_scope_name}_at_..
   ## Only for module level names var, let declared globally or any function
   ## This is used to avoid name clashes in the generated C code
-  if scope.kind != ModuleScope and symbol.kind != Function:
+  if scope.kind != ModuleScope and symbol.kind == Variable:
     return symbol.name
   var canonicalName = "__" & symbol.name
   var currentScope = scope
@@ -67,10 +63,13 @@ proc addSymbol*(scope: Scope, name: string, symbol: Symbol): bool =
     return false
   symbol.name = name
   symbol.canonicalName = calculateCanonicalName(scope, symbol)
+  symbol.scope = scope
   scope.symbols[name] = symbol
   return true
 
-proc findSymbol*(scope: Scope, name: string, at: Position, expected: set[SymbolKind]): Option[Symbol] =
+proc findSymbol*(
+    scope: Scope, name: string, at: Position, expected: set[SymbolKind]
+): Option[Symbol] =
   var currentScope = scope
   var requireModuleLevelVariable = false
   while currentScope != nil:
@@ -80,10 +79,9 @@ proc findSymbol*(scope: Scope, name: string, at: Position, expected: set[SymbolK
         if symbol.kind == Variable:
           if requireModuleLevelVariable:
             if currentScope.kind == ModuleScope:
-              if symbol.isGlobal or at >= symbol.node.pos:
-                return some(symbol)
+              return some(symbol)
           else:
-            if symbol.isGlobal or at >= symbol.node.pos:
+            if currentScope.kind == ModuleScope or at >= symbol.declStmt.pos:
               return some(symbol)
         else:
           return some(symbol)
@@ -92,12 +90,30 @@ proc findSymbol*(scope: Scope, name: string, at: Position, expected: set[SymbolK
     currentScope = currentScope.parent
   return none(Symbol)
 
-proc findSymbol*(scope: Scope, name: string, at: Position, expected: SymbolKind): Option[Symbol] {.inline.} =
+proc findSymbol*(
+    scope: Scope, name: string, at: Position, expected: SymbolKind
+): Option[Symbol] {.inline.} =
   result = findSymbol(scope, name, at, {expected})
 
 proc isReadOnly*(symbol: Symbol): bool =
   ## Check if a symbol is read-only
   ## Only variables can be read-only
   result =
-    symbol.kind == Variable and symbol.node.kind == SkVarDecl and
-    symbol.node.varDeclStmt.isReadOnly
+    symbol.kind == Variable and symbol.declStmt.kind == SkVarDecl and
+    symbol.declStmt.varDeclStmt.isReadOnly
+
+proc isPublic*(symbol: Symbol): bool =
+  ## Check if a symbol is public
+  case symbol.kind
+  of Variable:
+    return symbol.declStmt.varDeclStmt.isPublic
+  of Type:
+    case symbol.declStmt.kind
+    of SkTypeDecl:
+      return symbol.declStmt.typeDeclStmt.isPublic
+    of SkStructDecl:
+      return symbol.declStmt.structDeclStmt.isPublic
+    else:
+      return false
+  of Function:
+    return symbol.declStmt.funDeclStmt.isPublic

@@ -32,7 +32,7 @@ proc printHelp() =
   echo "  -h, --help               Show this help message"
 
 proc parseCliOptions(): CliOptions =
-  result.compiler = "gcc"
+  result.compiler = ""
   result.cflags = ""
   result.buildType = btDebug
   result.staticLink = false

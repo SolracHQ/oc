@@ -27,18 +27,18 @@ proc newParser*(file: FileInfo): Parser =
   result.file = file
   result.hasError = hasError
 
-proc parserError(parser: var Parser, error: string) =
+proc parserError(parser: var Parser, error: string, hint: string = "") =
   ## Log an error during parsing
   let current =
     if parser.current >= parser.tokens.len:
       parser.tokens.len - 1
     else:
       parser.current
-  logError("Parser", error, parser.tokens[current].pos)
+  logError("Parser", parser.tokens[current].pos, error, hint)
   parser.hasError = true
   raise PanicMode()
 
-proc randomString(): string =
+proc randomID(): string =
   ## Generate ids for code blocks
   ## This is a temporary solution, we should use a better way to generate unique ids
   const mySet = {'a' .. 'z', 'A' .. 'Z', '0' .. '9', '_'}
@@ -95,7 +95,7 @@ proc synchronize(parser: var Parser) =
     if parser.match({TKSemicolon, TKNewline}):
       return
     # If we reach a keyword that likely starts a new statement, we can stop synchronizing
-    if parser.check({TKFun, TkVar, TkLet}):
+    if parser.check({TKFun, TkVar, TkLet, TkIf, TKWhile, TKReturn}):
       return
     # Otherwise, keep advancing until we find a statement boundary
     discard parser.advance()
@@ -106,12 +106,39 @@ proc parseStatement(parser: var Parser, requireNewLine: bool = true): Stmt
 proc parseBlockStmt(parser: var Parser): Stmt
 proc parseType(parser: var Parser): Type
 
+proc parseStructLiteral(parser: var Parser): Expr =
+  ## Parse a struct literal: TypeName { member1: expr1, member2: expr2, ... }
+  let typeToken = parser.peek(-1).get() # Already matched identifier
+  let typeName = typeToken.lexeme
+  discard
+    parser.consume({TKLBrace}, "Expect '{' after struct type name for struct literal")
+  var members: seq[StructLiteralMember] = @[]
+  parser.cleanUpNewLines()
+  if not parser.check({TKRBrace}):
+    while true:
+      let nameTok = parser.consume({TKIdent}, "Expect member name in struct literal")
+      let memberName = nameTok.lexeme
+      let memberNamePos = nameTok.pos
+      discard
+        parser.consume({TKColon}, "Expect ':' after member name in struct literal")
+      let valueExpr = parser.parseExpression()
+      members.add(newStructLiteralMember(memberName, memberNamePos, valueExpr))
+      parser.cleanUpNewLines()
+      if not parser.match({TKComma}):
+        break
+      parser.cleanUpNewLines()
+  discard parser.consume({TKRBrace}, "Expect '}' after struct literal")
+  return newStructLiteralExpr(typeName, members, typeToken.pos)
+
 proc parsePrimary(parser: var Parser): Expr =
   ## Parse a primary expression
   if parser.isAtEnd():
     parser.parserError("Unexpected end of input")
   if parser.match({TKIdent}):
     let token = parser.peek(-1).get()
+    # Check for struct literal: Identifier '{'
+    if parser.check({TKLBrace}):
+      return parser.parseStructLiteral()
     return newIdentifierExpr(token.lexeme, token.pos)
   elif parser.match({TKIntLit}):
     let token = parser.peek(-1).get()
@@ -175,7 +202,8 @@ proc parseMemberAccess(parser: var Parser): Expr =
   while true:
     if parser.match({TKDot}):
       let dotToken = parser.peek(-1).get()
-      let memberToken = parser.consume({TKIdent}, "Expect identifier after '.' for member access")
+      let memberToken =
+        parser.consume({TKIdent}, "Expect identifier after '.' for member access")
       expr = newMemberAccessExpr(expr, memberToken.lexeme, dotToken.pos)
     elif parser.match({TKLParen}):
       let lparenToken = parser.peek(-1).get()
@@ -265,11 +293,9 @@ proc parseAssignment(parser: var Parser): Expr =
   ## Parse assignment expressions (e.g., x.y = y)
   let left = parser.parseLogical()
   if parser.match({TKEqual}):
-    if left.kind != EkIdentifier:
-      parser.parserError("Expect identifier on left side of assignment.")
     let token = parser.peek(-1).get()
     let right = parser.parseAssignment()
-    return newAssignmentExpr(left.identifierExpr.name, right, token.pos)
+    return newAssignmentExpr(left, right, token.pos)
   return left
 
 proc parseExpression(parser: var Parser): Expr =
@@ -280,7 +306,7 @@ proc parseType(parser: var Parser): Type =
   ## Parse a type expression
   if parser.match({TKIdent}):
     let token = parser.peek(-1).get()
-    return Type(kind: TkMeta, metaKind: MkUnresolved, name: token.lexeme)
+    return Type(kind: TkMeta, metaKind: MkNamedType, name: token.lexeme)
   elif parser.match(Primitives + {TkCVarArgs}):
     let token = parser.peek(-1).get()
     return token.`type`
@@ -314,7 +340,7 @@ proc parseBlockStmt(parser: var Parser): Stmt =
   while not parser.check({TKRBrace}):
     statements.add(parser.parseStatement())
   discard parser.consume({TKRBrace}, "Expect '}' after block.")
-  return newBlockStmt(randomString(), statements, token.pos)
+  return newBlockStmt(randomID(), statements, token.pos)
 
 proc parseVarDecl(parser: var Parser, isPublic: bool, isReadOnly: bool = false): Stmt =
   ## Parse a variable declaration
@@ -333,7 +359,9 @@ proc parseVarDecl(parser: var Parser, isPublic: bool, isReadOnly: bool = false):
       some(parser.parseExpression())
     else:
       none(Expr)
-  return newVarDeclStmt(identifier, typeAnnotation, initializer, isPublic, isReadOnly, token.pos)
+  return newVarDeclStmt(
+    identifier, typeAnnotation, initializer, isPublic, isReadOnly, token.pos
+  )
 
 proc parseFunDecl(parser: var Parser, isPublic: bool): Stmt =
   ## Parse a function declaration
@@ -355,9 +383,16 @@ proc parseFunDecl(parser: var Parser, isPublic: bool): Stmt =
     let typeStartTok = parser.peek().get()
     let paramType = parser.parseType()
     let typePos = typeStartTok.pos
-    parameters.add(FunctionParam(name: paramName, namePos: namePos, paramType: paramType, paramTypePos: typePos))
+    parameters.add(
+      FunctionParam(
+        name: paramName, namePos: namePos, paramType: paramType, paramTypePos: typePos
+      )
+    )
     parser.cleanUpNewLines()
-  discard parser.consume({TKRParen}, "Expect ')' after function parameters but got " & $parser.peek().get().kind)
+  discard parser.consume(
+    {TKRParen},
+    "Expect ')' after function parameters but got " & $parser.peek().get().kind,
+  )
   let (returnType, returnTypePos) =
     if parser.match({TKColon}):
       let typeTok = parser.peek().get()
@@ -369,7 +404,9 @@ proc parseFunDecl(parser: var Parser, isPublic: bool): Stmt =
       some(parser.parseStatement())
     else:
       none(Stmt)
-  var builder = newFunDeclBuilder(identifier, identifierPos, returnType, returnTypePos, isPublic, token.pos)
+  var builder = newFunDeclBuilder(
+    identifier, identifierPos, returnType, returnTypePos, isPublic, token.pos
+  )
   for param in parameters:
     addParameter(builder, param)
   if body.isSome:
@@ -448,7 +485,7 @@ proc parseAnnotation(parser: var Parser): Annotation =
 proc parseAnnotations(parser: var Parser): Table[string, Annotation] =
   ## Parse multiple annotations
 
-  while true: #
+  while true:
     # check for the start of an annotation TkHash + TkLBracket
     let first = parser.peek()
     if first.isNone or first.get().kind != TKHash:
@@ -470,36 +507,120 @@ proc parseAnnotations(parser: var Parser): Table[string, Annotation] =
 proc parseIfStmt(parser: var Parser): Stmt =
   ## Parse an if statement with optional elif and else branches
   let ifToken = parser.peek(-1).get() # 'if' token already matched
-  discard parser.consume({TKLParen}, "Expect '(' after 'if'.")
+
+  discard parser.consume({TKLParen}, "Expect '(' after 'if'")
   let ifCond = parser.parseExpression()
-  discard parser.consume({TKRParen}, "Expect ')' after if condition.")
-  # Clean up new lines after condition
+  discard parser.consume({TKRParen}, "Expect ')' after if condition")
   parser.cleanUpNewLines()
-  let ifBody = parser.parseStatement(false)
-  # Clean up new lines after body
+  discard
+    parser.consume({TKLBrace}, "Expect '{' after if condition for block statement.")
+  let ifBody = parser.parseBlockStmt()
   parser.cleanUpNewLines()
   var builder = newIfStmtBuilder(ifToken.pos)
-  addIfBranch(builder, randomString(), ifCond, ifBody)
+  addIfBranch(builder, randomID(), ifCond, ifBody)
 
-  # Parse zero or more elif branches
   while parser.match({TKElif}):
     let elifToken = parser.peek(-1).get()
-    discard parser.consume({TKLParen}, "Expect '(' after 'elif'.")
+    discard parser.consume({TKLParen}, "Expect '(' after 'elif'")
     let elifCond = parser.parseExpression()
-    discard parser.consume({TKRParen}, "Expect ')' after elif condition.")
-    # Clean up new lines after condition
+    discard parser.consume({TKRParen}, "Expect ')' after elif condition")
     parser.cleanUpNewLines()
-    let elifBody = parser.parseStatement(false)
-    # Clean up new lines after body
+    discard
+      parser.consume({TKLBrace}, "Expect '{' after elif condition for block statement.")
+    let elifBody = parser.parseBlockStmt()
     parser.cleanUpNewLines()
-    addIfBranch(builder, randomString(), elifCond, elifBody)
+    addIfBranch(builder, randomID(), elifCond, elifBody)
 
-  # Optionally parse else branch
   if parser.match({TKElse}):
-    let elseBody = parser.parseStatement(false)
-    setElseBranch(builder, randomString(), elseBody)
+    discard parser.consume({TKLBrace}, "Expect '{' after else for block statement.")
+    let elseBody = parser.parseBlockStmt()
+    setElseBranch(builder, randomID(), elseBody)
 
   return buildIfStmt(builder)
+
+proc parseWhileStmt(parser: var Parser): Stmt =
+  ## Parse a while statement
+  let whileToken = parser.peek(-1).get() # 'while' token already matched
+
+  discard parser.consume({TKLParen}, "Expect '(' after 'while'")
+  let condition = parser.parseExpression()
+  discard parser.consume({TKRParen}, "Expect ')' after while condition")
+  parser.cleanUpNewLines()
+  discard
+    parser.consume({TKLBrace}, "Expect '{' after while condition for block statement.")
+  let body = parser.parseBlockStmt()
+  return newWhileStmt(randomID(), condition, body, whileToken.pos)
+
+proc parseStructDecl(parser: var Parser, isPublic: bool): Stmt =
+  ## Parse a struct definition: struct Name { ... }
+  let structTok = parser.peek(-1).get()
+  let idTok = parser.consume({TKIdent}, "Expect identifier after 'struct'")
+  let identifier = idTok.lexeme
+  let identifierPos = idTok.pos
+  discard parser.consume({TKLBrace}, "Expect '{' after struct name")
+  var members: Table[string, ast.StructMember]
+  parser.cleanUpNewLines()
+  while not parser.check({TKRBrace}):
+    # Flexible preamble for struct members: comments, annotations, newlines
+    var comments: seq[string]
+    var annotationsTable: Table[string, Annotation] = initTable[string, Annotation]()
+    while true:
+      if parser.check({TKComment}):
+        let token = parser.peek().get()
+        comments.add(token.lexeme)
+        discard parser.advance()
+      elif parser.check({TKNewline, TKSemicolon}):
+        discard parser.advance()
+      elif parser.check({TKHash}):
+        let anns = parser.parseAnnotations()
+        for k, v in anns:
+          annotationsTable[k] = v
+      else:
+        break
+    var pub = false
+    if parser.match({TKPub}):
+      pub = true
+    let nameTok = parser.consume({TKIdent}, "Expect member name in struct")
+    let memberName = nameTok.lexeme
+    let memberNamePos = nameTok.pos
+    discard parser.consume({TKColon}, "Expect ':' after member name in struct")
+    let typeStartTok = parser.peek().get()
+    let memberType = parser.parseType()
+    let memberTypePos = typeStartTok.pos
+    var defaultValue: Option[Expr] = none(Expr)
+    if parser.match({TKEqual}):
+      defaultValue = some(parser.parseExpression())
+    members[memberName] = newStructMember(
+      memberName,
+      memberNamePos,
+      memberType,
+      memberTypePos,
+      comments,
+      Annotations(annotationsTable),
+      pub,
+      defaultValue,
+    )
+    parser.cleanUpNewLines()
+    if not parser.match({TKComma}):
+      break
+    parser.cleanUpNewLines()
+  discard parser.consume({TKRBrace}, "Expect '}' after struct members")
+  # Optional semicolon/newline after struct decl
+  if parser.check({TKSemicolon, TKNewline}):
+    discard parser.advance()
+  return newStructDeclStmt(isPublic, identifier, identifierPos, members, structTok.pos)
+
+proc parseTypeDecl(parser: var Parser, isPublic: bool): Stmt =
+  ## Parse a type definition: type Name = Type
+  let typeTok = parser.peek(-1).get()
+  let idTok = parser.consume({TKIdent}, "Expect identifier after 'type'")
+  let identifier = idTok.lexeme
+  discard parser.consume({TKEqual}, "Expect '=' after type name")
+  let typeAnnotation = parser.parseType()
+  # Optional semicolon/newline after type decl
+  if parser.check({TKSemicolon, TKNewline}):
+    discard parser.advance()
+  return newTypeDeclStmt(isPublic, identifier, typeAnnotation, typeTok.pos)
 
 proc parseStatement(parser: var Parser, requireNewLine: bool = true): Stmt =
   ## Parse a statement (flexible preamble: comments, annotations, newlines in any order)
@@ -532,12 +653,23 @@ proc parseStatement(parser: var Parser, requireNewLine: bool = true): Stmt =
       result = parser.parseVarDecl(pub, true)
     elif parser.match({TKFun}):
       result = parser.parseFunDecl(pub)
+    elif parser.match({TKType}):
+      # type definition or struct definition
+      if parser.check({TKIdent}) and parser.peek(1).isSome and
+          parser.peek(1).get().kind == TKEqual:
+        result = parser.parseTypeDecl(pub)
+      else:
+        parser.parserError("Expect '=' after 'type'")
+    elif parser.match({TokenKind.TKStruct}):
+      result = parser.parseStructDecl(pub)
     elif parser.match({TKReturn}):
       result = parser.parseReturnStmt()
     elif parser.match({TKLBrace}):
       result = parser.parseBlockStmt()
     elif parser.match({TKIf}):
       result = parser.parseIfStmt()
+    elif parser.match({TKWhile}):
+      result = parser.parseWhileStmt()
     else:
       result = parser.parseExpressionStmt()
 
@@ -552,6 +684,8 @@ proc parseStatement(parser: var Parser, requireNewLine: bool = true): Stmt =
     parser.synchronize()
     return Stmt(kind: SkNop)
 
+#import tree
+
 proc parseModule*(file: FileInfo): tuple[hasError: bool, module: Stmt] =
   ## Parse a module
   var parser = newParser(file)
@@ -562,3 +696,4 @@ proc parseModule*(file: FileInfo): tuple[hasError: bool, module: Stmt] =
   result.module = Stmt(
     kind: SkModule, moduleStmt: ModuleStmt(name: file.name, statements: statements)
   )
+  #echo treeRepr(result.module)

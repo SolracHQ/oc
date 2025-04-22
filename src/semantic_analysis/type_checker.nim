@@ -1,28 +1,31 @@
-import ../types/[file_info, position, scope, ast, types, token]
+import ../types/[position, scope, ast, types, token]
 import ../reporter
 import std/options
 import std/tables
 import type_inferencer
 
 type TypeChecker* = ref object
-  fileInfo*: FileInfo
   hasError*: bool
 
 proc typeCheckError*(
     checker: TypeChecker, position: Position, msg: string, hint: string
 ) =
   ## Prints an error message for the type checker
-  logError("TypeChecker", msg, position, hint)
+  logError("TypeChecker", position, msg, hint)
   checker.hasError = true
 
-proc newTypeChecker*(fileInfo: FileInfo): TypeChecker =
+proc newTypeChecker*(): TypeChecker =
   ## Creates a new type checker for the given file
   result = TypeChecker()
-  result.fileInfo = fileInfo
   result.hasError = false
 
 proc areTypesCompatible(
-    checker: TypeChecker, expected: Type, actual: Type, pos: Position, isVarArgs = false
+    checker: TypeChecker,
+    scope: Scope,
+    expected: Type,
+    actual: Type,
+    pos: Position,
+    isVarArgs = false,
 ): bool =
   ## Checks if the provided types are compatible
   ## If isVarArgs is true, allow any type when expected is the last parameter
@@ -36,18 +39,17 @@ proc areTypesCompatible(
     return true
 
   # Special case: nil is compatible with pointer types
-  if actual.kind == TkMeta and actual.metaKind == MkUnresolved and actual.name == "nil":
+  if actual.kind == TkMeta and actual.metaKind == MkAnyPointer:
     # For now, just return true for any nil assignment (to be refined)
     return true
 
-  if actual.kind == TkMeta and actual.metaKind == MkIntInfer and isIntFamily(expected):
+  if actual.kind == TkMeta and actual.metaKind == MkAnyInt and isIntFamily(expected):
     # Allow int inference for int family types
     return true
-  if actual.kind == TkMeta and actual.metaKind == MkFloatInfer and
-      isFloatFamily(expected):
+  if actual.kind == TkMeta and actual.metaKind == MkAnyFloat and isFloatFamily(expected):
     # Allow float inference for float family types
     return true
-  if actual.kind == TkMeta and actual.metaKind == MkUIntInfer and isUIntFamily(expected):
+  if actual.kind == TkMeta and actual.metaKind == MkAnyUint and isUIntFamily(expected):
     # Allow uint inference for uint family types
     return true
 
@@ -62,29 +64,46 @@ proc analyzeTypeCheckingExpr(checker: TypeChecker, scope: Scope, expr: Expr) =
   case expr.kind
   of EkAssignment:
     # Assignment is valid as an expression; check types
-    let identifier = expr.assignmentExpr.identifier
+    let left = expr.assignmentExpr.left
     let value = expr.assignmentExpr.value
-    let symbolOpt = scope.findSymbol(identifier, expr.pos, Variable)
-    if symbolOpt.isNone:
+
+    # Check left side is assignable (has address or is pointer, not ro pointer)
+    let leftType = left.exprType
+    var canAssign = leftType.hasAddress
+
+    if not canAssign:
       checker.typeCheckError(
-        expr.pos,
-        "Assignment to undeclared variable '" & identifier & "'",
-        "use 'let' or 'var' to declare it",
+        expr.pos, "Left side of assignment is not assignable",
+        "Only variables or pointer dereferences can be assigned to",
       )
     else:
-      let symbol = symbolOpt.get()
-      let inferencer = newTypeInferencer(checker.fileInfo)
-      let valueType = inferExpressionType(inferencer, scope, value)
-      discard areTypesCompatible(checker, symbol.varType, valueType, expr.pos)
-    # Type check both sides
-    # (left is just an identifier, but for completeness)
-    # If you support more complex lvalues, update here
-    # analyzeTypeCheckingExpr(checker, scope, expr.assignmentExpr.left) # Not needed for identifier
+      # If left is identifier, check it exists (optional, like reachability)
+      if left.kind == EkIdentifier:
+        let identifier = left.identifierExpr.name
+        let symbolOpt = scope.findSymbol(identifier, expr.pos, Variable)
+        if symbolOpt.isNone:
+          checker.typeCheckError(
+            expr.pos,
+            "Assignment to undeclared variable '" & identifier & "'",
+            "use 'let' or 'var' to declare it",
+          )
+        else:
+          let symbol = symbolOpt.get()
+          let valueType = value.exprType
+          discard areTypesCompatible(
+            checker, scope, symbol.declStmt.varDeclStmt.typeAnnotation, valueType,
+            expr.pos,
+          )
+      else:
+        # For non-identifier left, just check type compatibility
+        let valueType = value.exprType
+        discard areTypesCompatible(checker, scope, leftType, valueType, expr.pos)
+
+    analyzeTypeCheckingExpr(checker, scope, left)
     analyzeTypeCheckingExpr(checker, scope, value)
   of EkLogicalExpr:
-    let inferencer = newTypeInferencer(checker.fileInfo)
-    let leftType = inferExpressionType(inferencer, scope, expr.binaryOpExpr.left)
-    let rightType = inferExpressionType(inferencer, scope, expr.binaryOpExpr.right)
+    let leftType = expr.binaryOpExpr.left.exprType
+    let rightType = expr.binaryOpExpr.right.exprType
     if leftType.kind != TkPrimitive or leftType.primitive != Bool:
       checker.typeCheckError(
         expr.binaryOpExpr.left.pos,
@@ -100,9 +119,8 @@ proc analyzeTypeCheckingExpr(checker: TypeChecker, scope: Scope, expr: Expr) =
     analyzeTypeCheckingExpr(checker, scope, expr.binaryOpExpr.left)
     analyzeTypeCheckingExpr(checker, scope, expr.binaryOpExpr.right)
   of EkEqualityExpr, EkComparisonExpr:
-    let inferencer = newTypeInferencer(checker.fileInfo)
-    let leftType = inferExpressionType(inferencer, scope, expr.binaryOpExpr.left)
-    let rightType = inferExpressionType(inferencer, scope, expr.binaryOpExpr.right)
+    let leftType = expr.binaryOpExpr.left.exprType
+    let rightType = expr.binaryOpExpr.right.exprType
     if leftType.kind == TkPrimitive and rightType.kind == TkPrimitive:
       if leftType.primitive != rightType.primitive:
         checker.typeCheckError(
@@ -113,9 +131,8 @@ proc analyzeTypeCheckingExpr(checker: TypeChecker, scope: Scope, expr: Expr) =
     analyzeTypeCheckingExpr(checker, scope, expr.binaryOpExpr.left)
     analyzeTypeCheckingExpr(checker, scope, expr.binaryOpExpr.right)
   of EkAdditiveExpr, EkMultiplicativeExpr:
-    let inferencer = newTypeInferencer(checker.fileInfo)
-    let leftType = inferExpressionType(inferencer, scope, expr.binaryOpExpr.left)
-    let rightType = inferExpressionType(inferencer, scope, expr.binaryOpExpr.right)
+    let leftType = expr.binaryOpExpr.left.exprType
+    let rightType = expr.binaryOpExpr.right.exprType
     if (isIntFamily(leftType) and isIntFamily(rightType)) or
         (isFloatFamily(leftType) and isFloatFamily(rightType)) or
         (isUIntFamily(leftType) and isUIntFamily(rightType)):
@@ -150,8 +167,7 @@ proc analyzeTypeCheckingExpr(checker: TypeChecker, scope: Scope, expr: Expr) =
     analyzeTypeCheckingExpr(checker, scope, expr.binaryOpExpr.left)
     analyzeTypeCheckingExpr(checker, scope, expr.binaryOpExpr.right)
   of EkUnaryExpr:
-    let inferencer = newTypeInferencer(checker.fileInfo)
-    let operandType = inferExpressionType(inferencer, scope, expr.unaryOpExpr.operand)
+    let operandType = expr.unaryOpExpr.operand.exprType
     case expr.unaryOpExpr.operator
     of TkMinus:
       if not (
@@ -176,9 +192,7 @@ proc analyzeTypeCheckingExpr(checker: TypeChecker, scope: Scope, expr: Expr) =
       )
     analyzeTypeCheckingExpr(checker, scope, expr.unaryOpExpr.operand)
   of EkAddressOfExpr:
-    let inferencer = newTypeInferencer(checker.fileInfo)
-    let operandType =
-      inferExpressionType(inferencer, scope, expr.addressOfExpr.operand)
+    let operandType = expr.addressOfExpr.operand.exprType
     if not operandType.hasAddress:
       checker.typeCheckError(
         expr.pos,
@@ -187,8 +201,7 @@ proc analyzeTypeCheckingExpr(checker: TypeChecker, scope: Scope, expr: Expr) =
       )
     analyzeTypeCheckingExpr(checker, scope, expr.addressOfExpr.operand)
   of EkDerefExpr:
-    let inferencer = newTypeInferencer(checker.fileInfo)
-    let operandType = inferExpressionType(inferencer, scope, expr.derefExpr.operand)
+    let operandType = expr.derefExpr.operand.exprType
     if operandType.kind != TkPointer and operandType.kind != TkROPointer:
       checker.typeCheckError(
         expr.pos,
@@ -219,49 +232,90 @@ proc analyzeTypeCheckingExpr(checker: TypeChecker, scope: Scope, expr: Expr) =
         )
       else:
         let funcSymbol = symbolOpt.get()
-        let paramTypes = funcSymbol.paramTypes
+        let parameters = funcSymbol.declStmt.funDeclStmt.parameters
         let hasVarArgs =
-          paramTypes.len > 0 and paramTypes[^1].kind == TkMeta and
-          paramTypes[^1].metaKind == MkCVarArgs
+          parameters.len > 0 and parameters[^1].paramType.kind == TkMeta and
+          parameters[^1].paramType.metaKind == MkCVarArgs
         if hasVarArgs:
-          if arguments.len < paramTypes.len - 1:
+          if arguments.len < parameters.len - 1:
             checker.typeCheckError(
               expr.pos,
               "Too few arguments to function '" & funcName & "'",
-              "Expected at least " & $(paramTypes.len - 1) & " arguments but got " &
+              "Expected at least " & $(parameters.len - 1) & " arguments but got " &
                 $arguments.len,
             )
         if not hasVarArgs:
-          if arguments.len < paramTypes.len:
+          if arguments.len < parameters.len:
             checker.typeCheckError(
               expr.pos,
               "Too few arguments to function '" & funcName & "'",
-              "Expected " & $paramTypes.len & " arguments but got " & $arguments.len,
+              "Expected " & $parameters.len & " arguments but got " & $arguments.len,
             )
-          elif arguments.len > paramTypes.len:
+          elif arguments.len > parameters.len:
             checker.typeCheckError(
               expr.pos,
               "Too many arguments to function '" & funcName & "'",
-              "Expected " & $paramTypes.len & " arguments but got " & $arguments.len,
+              "Expected " & $parameters.len & " arguments but got " & $arguments.len,
             )
-        let inferencer = newTypeInferencer(checker.fileInfo)
         let regularParamCount =
           if hasVarArgs:
-            paramTypes.len - 1
+            parameters.len - 1
           else:
-            paramTypes.len
+            parameters.len
         for i in 0 ..< min(regularParamCount, arguments.len):
-          let argType = inferExpressionType(inferencer, scope, arguments[i])
-          let paramType = paramTypes[i]
-          discard areTypesCompatible(checker, paramType, argType, arguments[i].pos)
+          let argType = arguments[i].exprType
+          let parameter = parameters[i]
+          discard areTypesCompatible(
+            checker, scope, parameter.paramType, argType, arguments[i].pos
+          )
     analyzeTypeCheckingExpr(checker, scope, callee)
     for arg in arguments:
       analyzeTypeCheckingExpr(checker, scope, arg)
   of EkGroupExpr:
     analyzeTypeCheckingExpr(checker, scope, expr.groupExpr.expression)
+  of EkStructLiteral:
+    let structLit = expr.structLiteralExpr
+    let typeName = structLit.typeName
+    let symbolOpt = scope.findSymbol(typeName, expr.pos, Type)
+    if symbolOpt.isNone:
+      checker.typeCheckError(
+        expr.pos,
+        "Unknown struct type '" & typeName & "'",
+        "Declare the struct type before using it",
+      )
+    else:
+      let structType = symbolOpt.get().typeRepr
+      if structType.kind != TkStruct:
+        checker.typeCheckError(
+          expr.pos, "Type '" & typeName & "' is not a struct type", ""
+        )
+      else:
+        let members = structType.structType.members
+        var seen = initTable[string, bool]()
+        for m in structLit.members:
+          if m.name notin members:
+            checker.typeCheckError(
+              m.namePos,
+              "Unknown member '" & m.name & "' in struct literal",
+              "Check struct definition for valid members",
+            )
+          else:
+            let found = members[m.name]
+            let memberType = found.typ
+            let valueType = m.value.exprType
+            discard
+              areTypesCompatible(checker, scope, memberType, valueType, m.value.pos)
+            seen[m.name] = true
+            analyzeTypeCheckingExpr(checker, scope, m.value)
+        # Check for missing required members (no default and not present)
+        for _, m in members:
+          if not seen.hasKey(m.name):
+            checker.typeCheckError(
+              expr.pos, "Missing member '" & m.name & "' in struct literal", ""
+            )
   # Leaf nodes
   of EkIdentifier, EkIntLiteral, EkUIntLiteral, EkFloatLiteral, EkStringLiteral,
-      EkCStringLiteral, EkCharLiteral, EkBoolLiteral, EkNilLiteral, EkType:
+      EkCStringLiteral, EkCharLiteral, EkBoolLiteral, EkNilLiteral:
     discard
 
 proc analyzeTypeChecking*(checker: TypeChecker, scope: Scope, stmt: Stmt) =
@@ -274,9 +328,9 @@ proc analyzeTypeChecking*(checker: TypeChecker, scope: Scope, stmt: Stmt) =
     let varDecl = stmt.varDeclStmt
     if varDecl.initializer.isSome:
       let initExpr = varDecl.initializer.get()
-      let inferencer = newTypeInferencer(checker.fileInfo)
-      let initType = inferExpressionType(inferencer, scope, initExpr)
-      discard areTypesCompatible(checker, varDecl.typeAnnotation, initType, stmt.pos)
+      let initType = initExpr.exprType
+      discard
+        areTypesCompatible(checker, scope, varDecl.typeAnnotation, initType, stmt.pos)
       analyzeTypeCheckingExpr(checker, scope, initExpr)
   of SkFunDecl:
     let funDecl = stmt.funDeclStmt
@@ -284,6 +338,12 @@ proc analyzeTypeChecking*(checker: TypeChecker, scope: Scope, stmt: Stmt) =
       if scope.children.hasKey(funDecl.identifier):
         let functionScope = scope.children[funDecl.identifier]
         analyzeTypeChecking(checker, functionScope, funDecl.body.get())
+  of SkTypeDecl:
+    # No type checking needed for type declarations
+    discard
+  of SkStructDecl:
+    # No type checking needed for struct declarations
+    discard
   of SkBlockStmt:
     let blockScope = scope.children[stmt.blockStmt.blockId]
     for s in stmt.blockStmt.statements:
@@ -306,21 +366,20 @@ proc analyzeTypeChecking*(checker: TypeChecker, scope: Scope, stmt: Stmt) =
           break
         currentScope = currentScope.parent
       if funcSymbol != nil:
-        let inferencer = newTypeInferencer(checker.fileInfo)
-        let exprType = inferExpressionType(inferencer, scope, returnExpr)
-        discard areTypesCompatible(checker, funcSymbol.returnType, exprType, stmt.pos)
+        let exprType = returnExpr.exprType
+        discard areTypesCompatible(
+          checker, scope, funcSymbol.declStmt.funDeclStmt.returnType, exprType, stmt.pos
+        )
       else:
         checker.typeCheckError(
-          stmt.pos,
-          "Return statement outside of function",
+          stmt.pos, "Return statement outside of function",
           "Return statements must be inside a function",
         )
       analyzeTypeCheckingExpr(checker, scope, returnExpr)
   of SkIfStmt:
     for i, branch in stmt.ifStmt.branches:
       let branchScope = scope.children[branch.scopeId]
-      let inferencer = newTypeInferencer(checker.fileInfo)
-      let condType = inferExpressionType(inferencer, scope, branch.condition)
+      let condType = branch.condition.exprType
       if condType.kind != TkPrimitive or condType.primitive != Bool:
         checker.typeCheckError(
           branch.condition.pos,
@@ -333,5 +392,17 @@ proc analyzeTypeChecking*(checker: TypeChecker, scope: Scope, stmt: Stmt) =
       let elseBranch = stmt.ifStmt.elseBranch.get
       let elseScope = scope.children[elseBranch.scopeId]
       analyzeTypeChecking(checker, elseScope, elseBranch.body)
+  of SkWhileStmt:
+    let whileStmt = stmt.whileStmt
+    let whileScope = scope.children[whileStmt.scopeId]
+    let condType = whileStmt.condition.exprType
+    if condType.kind != TkPrimitive or condType.primitive != Bool:
+      checker.typeCheckError(
+        whileStmt.condition.pos,
+        "While condition must be a boolean expression",
+        "but got " & $condType,
+      )
+    analyzeTypeCheckingExpr(checker, scope, whileStmt.condition)
+    analyzeTypeChecking(checker, whileScope, whileStmt.body)
   of SkNop:
     discard

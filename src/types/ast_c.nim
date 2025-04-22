@@ -19,6 +19,9 @@ type
     CskExprStmt
     CskReturnStmt
     CskIfStmt
+    CskWhileStmt
+    CskTypedef
+    CskStructDef
 
   CExprKind* = enum
     CekAssignment
@@ -37,6 +40,9 @@ type
     CekCharLiteral
     CekBoolLiteral
     CekNullLiteral
+    CekStructLiteral
+    CekMemberAccess
+    CekArrowMemberAccess
 
   # Program structure
   TranslationUnitNode* = object
@@ -68,6 +74,16 @@ type
     isStatic*: bool
     isExtern*: bool
     isVolatile*: bool
+
+  # Typedef
+  TypedefNode* = object
+    name*: string
+    baseType*: CType
+
+  # Struct definition
+  StructDefNode* = object
+    name*: string
+    members*: seq[ParameterNode] # Use ParameterNode for member name/type
 
   # Preprocessor
   DefineNode* = object
@@ -106,6 +122,10 @@ type
     condition*: CExpr
     body*: CStmt
 
+  WhileStmtNode* = object
+    condition*: CExpr
+    body*: CStmt
+
   # Expressions
   AssignmentNode* = object
     lhs*: CExpr
@@ -140,6 +160,24 @@ type
 
   DereferenceNode* = object
     operand*: CExpr
+
+  # Struct literal
+  StructLiteralMemberNode* = object
+    name*: string
+    value*: CExpr
+
+  StructLiteralNode* = object
+    typeName*: string
+    members*: seq[StructLiteralMemberNode]
+
+  # Member access
+  MemberAccessNode* = object
+    expr*: CExpr
+    member*: string
+
+  ArrowMemberAccessNode* = object
+    expr*: CExpr
+    member*: string
 
   # Literals
   IntLiteralNode* = object
@@ -177,6 +215,9 @@ type
     of CskExprStmt: exprStmtNode*: ExprStmtNode
     of CskReturnStmt: returnStmtNode*: ReturnStmtNode
     of CskIfStmt: ifStmtNode*: IfStmtNode
+    of CskWhileStmt: whileStmtNode*: WhileStmtNode
+    of CskTypedef: typedefNode*: TypedefNode
+    of CskStructDef: structDefNode*: StructDefNode
     of CskNop: discard
 
   # Main CExpr type
@@ -198,4 +239,7 @@ type
     of CekStringLiteral: stringLiteralNode*: StringLiteralNode
     of CekCharLiteral: charLiteralNode*: CharLiteralNode
     of CekBoolLiteral: boolLiteralNode*: BoolLiteralNode
+    of CekStructLiteral: structLiteralNode*: StructLiteralNode
+    of CekMemberAccess: memberAccessNode*: MemberAccessNode
+    of CekArrowMemberAccess: arrowMemberAccessNode*: ArrowMemberAccessNode
     of CekNullLiteral: discard

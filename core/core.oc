@@ -1,2 +1,0 @@
-#[magic(cast)]
-fn cast(T: Type, value: Any): T

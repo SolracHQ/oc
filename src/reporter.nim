@@ -36,7 +36,7 @@ proc extractLine(
 
   return (problemLine, columnOffset)
 
-proc logError*(stage: string, error: string, position: Position, hint: string = "") =
+proc logError*(stage: string, position: Position, error: string, hint: string = "") =
   ## Log an error with source code context
   let
     termWidth = getTerminalWidth()

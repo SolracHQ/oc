@@ -1,150 +1,187 @@
 import std/options
-import ../types/[types, ast]
-import strformat
-import strutils
+import std/tables
+import std/strutils
+import ../types/[types, ast, annotation]
 
-proc treeRepr*(node: Node, indent: int = 0): string
+proc annotationRepr*(anns: Annotations, indent: int = 0): string =
+  ## Pretty print annotations as a tree
+  let indentStr = "  annotations".repeat(indent)
 
-proc annotationRepr*(annotation: Annotation, indent: int = 0): string =
-  ## Creates a string representation of an annotation in tree-like format
+proc treeRepr*(node: Expr, indent: int = 0): string
+
+proc treeRepr*(node: Stmt, indent: int = 0): string =
   let indentStr = "  ".repeat(indent)
-  result = indentStr & annotation.name
-
-  # If there are no arguments, add an empty line
-  if annotation.args.len == 0:
-    return result & "\n"
-  else:
-    result.add ":\n"
-
-  let argIndent = "  ".repeat(indent + 2)
-
-  # Process each argument
-  for arg in annotation.args:
-    if arg.value.isSome:
-      # Key with value (key: value)
-      result.add argIndent & arg.name & ":\n"
-      result.add treeRepr(arg.value.get, indent + 3)
-    else:
-      # Flag (key without value)
-      result.add argIndent & arg.name & "\n"
-
-proc treeRepr*(node: Node, indent: int = 0): string =
-  ## Creates a tree-like string representation of an AST node
-  let indentStr = "  ".repeat(indent)
-
+  if node.isNil:
+    return indentStr & "<nil stmt>\n"
+  if false:
+    result.add annotationRepr(node.annotations, indent)
   case node.kind
-  of NkNop:
-    result = indentStr & "nop\n"
-  of NkModule:
-    result = indentStr & "module (" & node.moduleNode.name & "):\n"
-    for stmt in node.moduleNode.statements:
-      result.add treeRepr(stmt, indent + 1)
-  of NkBlockStmt:
-    result = indentStr & "block:\n"
-    for stmt in node.blockStmtNode.statements:
-      result.add treeRepr(stmt, indent + 1)
-  of NkVarDecl:
-    result = indentStr & "var:\n"
-    result.add indentStr & "  ident: " & node.varDeclNode.identifier & "\n"
-    result.add indentStr & "  type: " & $node.varDeclNode.typeAnnotation & "\n"
-    if node.varDeclNode.initializer.isSome:
+  of SkModule:
+    result.add indentStr & "module " & node.moduleStmt.name & ":\n"
+    for s in node.moduleStmt.statements:
+      result.add treeRepr(s, indent + 1)
+  of SkVarDecl:
+    let vd = node.varDeclStmt
+    result.add indentStr & (if vd.isReadOnly: "let" else: "var") & " " & vd.identifier &
+      ": " & $vd.typeAnnotation & "\n"
+    if vd.initializer.isSome:
       result.add indentStr & "  init:\n"
-      result.add treeRepr(node.varDeclNode.initializer.get, indent + 2)
-    if node.varDeclNode.annotations.len > 0:
-      result.add indentStr & "  annotations:\n"
-      for ann in node.varDeclNode.annotations:
-        result.add indentStr & annotationRepr(ann, indent + 1)
-  of NkLetDecl:
-    result = indentStr & "let:\n"
-    result.add indentStr & "  ident: " & node.letDeclNode.identifier & "\n"
-    result.add indentStr & "  type: " & $node.letDeclNode.typeAnnotation & "\n"
-    if node.letDeclNode.initializer.isSome:
-      result.add indentStr & "  init:\n"
-      result.add treeRepr(node.letDeclNode.initializer.get, indent + 2)
-    if node.letDeclNode.annotations.len > 0:
-      result.add indentStr & "  annotations:\n"
-      for ann in node.letDeclNode.annotations:
-        result.add indentStr & annotationRepr(ann, indent + 1)
-  of NkFunDecl:
-    result = indentStr & "function:\n"
-    result.add indentStr & "  name: " & node.funDeclNode.identifier & "\n"
-    if node.funDeclNode.parameters.len > 0:
-      result.add indentStr & "  params:\n"
-      for param in node.funDeclNode.parameters:
-        result.add indentStr & "    " & param.identifier & ": " & $param.paramType & "\n"
-
-    result.add indentStr & "  returnType: " & $node.funDeclNode.returnType & "\n"
-    if node.funDeclNode.annotations.len > 0:
-      result.add indentStr & "  annotations:\n"
-      for ann in node.funDeclNode.annotations:
-        result.add indentStr & annotationRepr(ann, indent + 1)
-    result.add indentStr & "  body:\n"
-    if node.funDeclNode.body.isSome:
-      result.add treeRepr(node.funDeclNode.body.get, indent + 2)
+      result.add treeRepr(vd.initializer.get, indent + 2)
+  of SkFunDecl:
+    let fd = node.funDeclStmt
+    result.add indentStr & "func " & fd.identifier & "("
+    for i, p in fd.parameters:
+      if i > 0:
+        result.add ", "
+      result.add p.name & ": " & $p.paramType
+    result.add "): " & $fd.returnType & "\n"
+    if fd.body.isSome:
+      result.add indentStr & "  body:\n"
+      result.add treeRepr(fd.body.get, indent + 2)
     else:
-      result.add indentStr & "    <empty>\n"
-  of NkExprStmt:
-    result = indentStr & "expr:\n"
-    result.add treeRepr(node.exprStmtNode.expression, indent + 1)
-  of NkReturnStmt:
-    result = indentStr & "return:\n"
-    if node.returnStmtNode.expression.isSome:
-      result.add treeRepr(node.returnStmtNode.expression.get, indent + 1)
-  of NkAssignment:
-    result = indentStr & "assign:\n"
-    result.add indentStr & "  target: " & node.assignmentNode.identifier & "\n"
-    result.add indentStr & "  value:\n"
-    result.add treeRepr(node.assignmentNode.value, indent + 2)
-  of NkLogicalExpr, NkEqualityExpr, NkComparisonExpr, NkAdditiveExpr,
-      NkMultiplicativeExpr:
-    let opStr = $node.binaryOpNode.operator
-    result = indentStr & fmt"binary({opStr}):" & "\n"
-    result.add indentStr & "  left:\n"
-    result.add treeRepr(node.binaryOpNode.left, indent + 2)
-    result.add indentStr & "  right:\n"
-    result.add treeRepr(node.binaryOpNode.right, indent + 2)
-  of NkCommentLiteral:
-    result = indentStr & "comment: ...\n"
-  of NkUnaryExpr:
-    result = indentStr & "unary(" & $node.unaryOpNode.operator & "):\n"
-    result.add treeRepr(node.unaryOpNode.operand, indent + 1)
-  of NkMemberAccess:
-    result = indentStr & "member:\n"
-    result.add indentStr & "  object:\n"
-    result.add treeRepr(node.memberAccessNode.obj, indent + 2)
-    result.add indentStr & "  property: " & node.memberAccessNode.member & "\n"
-  of NkFunctionCall:
-    result = indentStr & "call:\n"
-    result.add indentStr & "  callee:\n"
-    result.add treeRepr(node.functionCallNode.callee, indent + 2)
-    if node.functionCallNode.arguments.len > 0:
-      result.add indentStr & "  args:\n"
-      for arg in node.functionCallNode.arguments:
-        result.add treeRepr(arg, indent + 2)
-  of NkIdentifier:
-    result = indentStr & "ident: " & node.identifierNode.name & "\n"
-  of NkGroupExpr:
-    result = indentStr & "group:\n"
-    result.add treeRepr(node.groupNode.expression, indent + 1)
-  of NkIntLiteral:
-    result = indentStr & "int: " & $node.intLiteralNode.value & "\n"
-  of NkUIntLiteral:
-    result = indentStr & "uint: " & $node.uintLiteralNode.value & "u\n"
-  of NkFloatLiteral:
-    result = indentStr & "float: " & $node.floatLiteralNode.value & "\n"
-  of NkStringLiteral:
-    result = indentStr & "string: \"" & node.stringLiteralNode.value & "\"\n"
-  of NkCStringLiteral:
-    result = indentStr & "cstring: \"" & node.cstringLiteralNode.value & "\"\n"
-  of NkCharLiteral:
-    result = indentStr & "char: '" & $node.charLiteralNode.value & "'\n"
-  of NkBoolLiteral:
-    result = indentStr & "bool: " & $node.boolLiteralNode.value & "\n"
-  of NkNilLiteral:
-    result = indentStr & "nil\n"
-  of NkType:
-    result = indentStr & "type: " & $node.typeNode & "\n"
+      result.add indentStr & "  body: <empty>\n"
+  of SkTypeDecl:
+    let td = node.typeDeclStmt
+    result.add indentStr & "type " & td.identifier & ": " & $td.typeAnnotation & "\n"
+  of SkStructDecl:
+    let sd = node.structDeclStmt
+    result.add indentStr & "struct " & sd.identifier & ":\n"
+    for _, m in sd.members:
+      result.add indentStr & "  " & (if m.isPublic: "pub " else: "") & m.name & ": " &
+        $m.memberType
+      if false:
+        result.add " " & annotationRepr(m.annotations, 0).strip
+      result.add "\n"
+      if m.defaultValue.isSome:
+        result.add indentStr & "    default:\n"
+        result.add treeRepr(m.defaultValue.get, indent + 3)
+  of SkBlockStmt:
+    result.add indentStr & "block"
+    if node.blockStmt.blockId.len > 0:
+      result.add " [id=" & node.blockStmt.blockId & "]"
+    result.add ":\n"
+    for s in node.blockStmt.statements:
+      result.add treeRepr(s, indent + 1)
+  of SkExprStmt:
+    result.add indentStr & "expr:\n"
+    result.add treeRepr(node.exprStmt.expression, indent + 1)
+  of SkReturnStmt:
+    result.add indentStr & "return"
+    if node.returnStmt.expression.isSome:
+      result.add ":\n"
+      result.add treeRepr(node.returnStmt.expression.get, indent + 1)
+    else:
+      result.add "\n"
+  of SkIfStmt:
+    result.add indentStr & "if:\n"
+    for b in node.ifStmt.branches:
+      result.add indentStr & "  branch"
+      if b.scopeId.len > 0:
+        result.add " [id=" & b.scopeId & "]"
+      result.add ":\n"
+      result.add indentStr & "    cond:\n"
+      result.add treeRepr(b.condition, indent + 3)
+      result.add indentStr & "    body:\n"
+      result.add treeRepr(b.body, indent + 3)
+    if node.ifStmt.elseBranch.isSome:
+      let eb = node.ifStmt.elseBranch.get
+      result.add indentStr & "  else"
+      if eb.scopeId.len > 0:
+        result.add " [id=" & eb.scopeId & "]"
+      result.add ":\n"
+      result.add treeRepr(eb.body, indent + 2)
+  of SkWhileStmt:
+    result.add indentStr & "while"
+    if node.whileStmt.scopeId.len > 0:
+      result.add " [id=" & node.whileStmt.scopeId & "]"
+    result.add ":\n"
+    result.add indentStr & "  cond:\n"
+    result.add treeRepr(node.whileStmt.condition, indent + 2)
+    result.add indentStr & "  body:\n"
+    result.add treeRepr(node.whileStmt.body, indent + 2)
+  of SkNop:
+    result.add indentStr & "nop\n"
 
-proc printTree*(node: Node): string =
-  ## Creates a string representation of the AST for printing
+proc treeRepr*(node: Expr, indent: int = 0): string =
+  let indentStr = "  ".repeat(indent)
+  if node.isNil:
+    return indentStr & "<nil expr>\n"
+  if false:
+    result.add annotationRepr(node.annotations, indent)
+  # Print type info for every expression
+  if not node.exprType.isNil:
+    result.add indentStr & "type:\n"
+    result.add node.exprType.asTree(indent + 1)
+  else:
+    result.add indentStr & "expression has no type\n"
+  case node.kind
+  of EkAssignment:
+    let a = node.assignmentExpr
+    result.add indentStr & "assign:\n"
+    result.add indentStr & "  left:\n"
+    result.add treeRepr(a.left, indent + 2)
+    result.add indentStr & "  value:\n"
+    result.add treeRepr(a.value, indent + 2)
+  of EkLogicalExpr, EkEqualityExpr, EkComparisonExpr, EkAdditiveExpr,
+      EkMultiplicativeExpr:
+    let b = node.binaryOpExpr
+    result.add indentStr & "binary(" & $b.operator & "):\n"
+    result.add indentStr & "  left:\n"
+    result.add treeRepr(b.left, indent + 2)
+    result.add indentStr & "  right:\n"
+    result.add treeRepr(b.right, indent + 2)
+  of EkUnaryExpr:
+    let u = node.unaryOpExpr
+    result.add indentStr & "unary(" & $u.operator & "):\n"
+    result.add treeRepr(u.operand, indent + 1)
+  of EkMemberAccess:
+    let m = node.memberAccessExpr
+    result.add indentStr & "member:\n"
+    result.add indentStr & "  object:\n"
+    result.add treeRepr(m.obj, indent + 2)
+    result.add indentStr & "  property: " & m.member & "\n"
+  of EkFunctionCall:
+    let c = node.functionCallExpr
+    result.add indentStr & "call:\n"
+    result.add indentStr & "  callee:\n"
+    result.add treeRepr(c.callee, indent + 2)
+    if c.arguments.len > 0:
+      result.add indentStr & "  args:\n"
+      for arg in c.arguments:
+        result.add treeRepr(arg, indent + 2)
+  of EkIdentifier:
+    result.add indentStr & "ident: " & node.identifierExpr.name & "\n"
+  of EkGroupExpr:
+    result.add indentStr & "group:\n"
+    result.add treeRepr(node.groupExpr.expression, indent + 1)
+  of EkAddressOfExpr:
+    result.add indentStr & "addrof:\n"
+    result.add treeRepr(node.addressOfExpr.operand, indent + 1)
+  of EkDerefExpr:
+    result.add indentStr & "deref:\n"
+    result.add treeRepr(node.derefExpr.operand, indent + 1)
+  of EkIntLiteral:
+    result.add indentStr & "int: " & $node.intLiteralExpr.value & "\n"
+  of EkUIntLiteral:
+    result.add indentStr & "uint: " & $node.uintLiteralExpr.value & "u\n"
+  of EkFloatLiteral:
+    result.add indentStr & "float: " & $node.floatLiteralExpr.value & "\n"
+  of EkStringLiteral:
+    result.add indentStr & "string: \"" & node.stringLiteralExpr.value & "\"\n"
+  of EkCStringLiteral:
+    result.add indentStr & "cstring: \"" & node.cStringLiteralExpr.value & "\"\n"
+  of EkCharLiteral:
+    result.add indentStr & "char: '" & $node.charLiteralExpr.value & "'\n"
+  of EkBoolLiteral:
+    result.add indentStr & "bool: " & $node.boolLiteralExpr.value & "\n"
+  of EkNilLiteral:
+    result.add indentStr & "nil\n"
+  of EkStructLiteral:
+    let sl = node.structLiteralExpr
+    result.add indentStr & "structlit " & sl.typeName & ":\n"
+    for m in sl.members:
+      result.add indentStr & "  " & m.name & ":\n"
+      result.add treeRepr(m.value, indent + 2)
+
+proc printTree*(node: Stmt): string =
   result = treeRepr(node)

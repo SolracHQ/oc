@@ -16,9 +16,9 @@ proc current(lexer: var Lexer): var int {.inline.} =
   ## Get the current character in the source code
   result = lexer.pos.offset
 
-proc lexerError*(lexer: var Lexer, error: string) =
+proc lexerError*(lexer: var Lexer, error: string, hint: string = "") =
   ## Log an error during lexing
-  logError("Lexer", error, lexer.pos)
+  logError("Lexer", lexer.pos, error, hint)
   lexer.hasError = true
 
 proc newLexer*(file: FileInfo): Lexer =
@@ -263,12 +263,12 @@ proc scanToken(lexer: var Lexer) =
     if lexer.match('='):
       addToken(lexer, TkBiggerEqual)
     else:
-      addToken(lexer, TkLAngle)
+      addToken(lexer, TkRAngle)
   of '<':
     if lexer.match('='):
       addToken(lexer, TkSmallerEqual)
     else:
-      addToken(lexer, TkRAngle)
+      addToken(lexer, TkLAngle)
   of '.':
     addToken(lexer, TkDot)
   of ',':

@@ -14,10 +14,9 @@
   - [x] Move all text generation to code generator (no logic)
   - [x] Move all data transformation to transpiler (no text generation)
 
-- [ ] **Type System Improvements**
-  - [ ] Enhance type inference to resolve metatypes properly (add additional pass)
-  - [ ] Fix type resolution for variables that end with metatypes
-  - [ ] Determine approach for type variables/symbols
+- [x] **Type System Improvements**
+  - [x] Enhance type inference to resolve metatypes properly (add additional pass)
+  - [x] Fix type resolution for variables that end with metatypes
 
 - [x] **AST Construction**
   - [x] Add helper function to create AST variants to avoid uninitialized members
@@ -25,20 +24,31 @@
 ## Medium Priority
 
 - [ ] **Core Language Features**
-  - [ ] Implement structs
+  - [x] Implement structs
   - [x] Add support for pointers
   - [ ] Introduce arrays
   - [ ] Implement control flow statements
     - [x] If/else conditionals
-    - [ ] While loops
+    - [x] While loops
     - [ ] For loops
   - [ ] Design and implement generics via type erasure
-  - [ ] Reconsider function calling conventions
+  - [x] Reconsider function calling conventions
   - [ ] Add optional parameters
   - [ ] Add implicit return variable
   - [ ] Add checker for every path on function to ensure that the function always returns or assigns to result
-  - [ ] Add while and for statement (duplicate, but keep for clarity)
   - [ ] Consider about do-while statement
+
+- [ ] **String Literal Support**
+  - [ ] Implement string literal type
+    - [ ] Define string as a struct with `len` and pointer to data
+    - [ ] Add code generation for string literals
+    - [ ] Add runtime support for string struct
+  - [ ] Add string operations (concatenation, comparison, etc.)
+
+- [ ] **Module System**
+  - [ ] Implement import statement
+  - [ ] Implement module system to support multiple files
+  - [ ] Enable core module development
 
 - [ ] **Documentation**
   - [ ] Update Formal Syntax documentation to reflect implementation changes
@@ -50,7 +60,7 @@
   - [ ] Improve error messages with more helpful hints
   - [ ] Add better compiler diagnostics
   - [ ] Improve compilation error reporting
-  - [ ] Fix difference on how error is reported in every stage (currently inconsistent: sometimes msg,pos,hint; other times pos,msg,hint; and others just msg,pos)
+  - [x] Fix difference on how error is reported in every stage (currently inconsistent: sometimes msg,pos,hint; other times pos,msg,hint; and others just msg,pos)
   - [ ] Make integration tests
   - [ ] Make test for each stage
   - [ ] Improve in-code documentation (currently a mess and confusing during changes)

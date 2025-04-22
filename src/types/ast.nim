@@ -3,16 +3,20 @@ import types
 import token
 import annotation
 import std/options
+import std/tables
 
 type
   StmtKind* = enum
     SkModule
     SkVarDecl
     SkFunDecl
+    SkTypeDecl
+    SkStructDecl
     SkBlockStmt
     SkExprStmt
     SkReturnStmt
     SkIfStmt
+    SkWhileStmt
     SkNop
 
   ExprKind* = enum
@@ -37,7 +41,7 @@ type
     EkCharLiteral
     EkBoolLiteral
     EkNilLiteral
-    EkType
+    EkStructLiteral
 
   # Program
   ModuleStmt* = object
@@ -45,12 +49,33 @@ type
     statements*: seq[Stmt]
 
   # Statements
-  VarDeclStmt* = object
+  VarDeclStmt* = ref object
     isPublic*: bool
     isReadOnly*: bool # Indicates if this is a 'let' declaration
     identifier*: string
     typeAnnotation*: Type
     initializer*: Option[Expr]
+
+  TypeDeclStmt* = ref object
+    isPublic*: bool
+    identifier*: string
+    typeAnnotation*: Type
+
+  StructMember* = object
+    name*: string
+    namePos*: Position
+    memberType*: Type
+    memberTypePos*: Position
+    comments*: seq[string]
+    annotations*: Annotations
+    isPublic*: bool
+    defaultValue*: Option[Expr]
+
+  StructDeclStmt* = ref object
+    isPublic*: bool
+    identifier*: string
+    identifierPos*: Position
+    members*: Table[string, StructMember]
 
   FunctionParam* = object
     name*: string
@@ -59,7 +84,7 @@ type
     paramTypePos*: Position
     defaultValue*: Option[Expr]
 
-  FunDeclStmt* = object
+  FunDeclStmt* = ref object
     identifier*: string
     identifierPos*: Position
     parameters*: seq[FunctionParam]
@@ -78,7 +103,7 @@ type
   ReturnStmt* = object
     expression*: Option[Expr]
 
-  IfStmt* = object
+  IfStmt* = ref object
     branches*: seq[IfBranch]
     elseBranch*: Option[ElseBranch]
 
@@ -91,9 +116,32 @@ type
     scopeId*: string
     body*: Stmt
 
+  WhileStmt* = ref object
+    scopeId*: string
+    condition*: Expr
+    body*: Stmt
+
+  # Statements
+  Stmt* = ref object
+    pos*: Position
+    annotations*: Annotations
+    comments*: seq[string]
+    case kind*: StmtKind
+    of SkModule: moduleStmt*: ModuleStmt
+    of SkVarDecl: varDeclStmt*: VarDeclStmt
+    of SkFunDecl: funDeclStmt*: FunDeclStmt
+    of SkTypeDecl: typeDeclStmt*: TypeDeclStmt
+    of SkStructDecl: structDeclStmt*: StructDeclStmt
+    of SkBlockStmt: blockStmt*: BlockStmt
+    of SkExprStmt: exprStmt*: ExprStmt
+    of SkReturnStmt: returnStmt*: ReturnStmt
+    of SkIfStmt: ifStmt*: IfStmt
+    of SkWhileStmt: whileStmt*: WhileStmt
+    of SkNop: discard
+
   # Expressions
   AssignmentExpr* = object
-    identifier*: string
+    left*: Expr
     value*: Expr
 
   BinaryOpExpr* = object
@@ -125,6 +173,15 @@ type
   DerefExpr* = object
     operand*: Expr
 
+  StructLiteralMember* = object
+    name*: string
+    namePos*: Position
+    value*: Expr
+
+  StructLiteralExpr* = object
+    typeName*: string
+    members*: seq[StructLiteralMember]
+
   # Literals
   IntLiteralExpr* = object
     value*: int
@@ -147,28 +204,15 @@ type
   BoolLiteralExpr* = object
     value*: bool
 
-  # Statements
-  Stmt* = ref object
-    pos*: Position
-    annotations*: Annotations
-    comments*: seq[string]
-    case kind*: StmtKind
-    of SkModule: moduleStmt*: ModuleStmt
-    of SkVarDecl: varDeclStmt*: VarDeclStmt
-    of SkFunDecl: funDeclStmt*: FunDeclStmt
-    of SkBlockStmt: blockStmt*: BlockStmt
-    of SkExprStmt: exprStmt*: ExprStmt
-    of SkReturnStmt: returnStmt*: ReturnStmt
-    of SkIfStmt: ifStmt*: IfStmt
-    of SkNop: discard
-
   # Expressions
   Expr* = ref object
     pos*: Position
     annotations*: Annotations
+    exprType*: Type
     case kind*: ExprKind
     of EkAssignment: assignmentExpr*: AssignmentExpr
-    of EkLogicalExpr, EkEqualityExpr, EkComparisonExpr, EkAdditiveExpr, EkMultiplicativeExpr: binaryOpExpr*: BinaryOpExpr
+    of EkLogicalExpr, EkEqualityExpr, EkComparisonExpr, EkAdditiveExpr,
+        EkMultiplicativeExpr: binaryOpExpr*: BinaryOpExpr
     of EkUnaryExpr: unaryOpExpr*: UnaryOpExpr
     of EkMemberAccess: memberAccessExpr*: MemberAccessExpr
     of EkFunctionCall: functionCallExpr*: FunctionCallExpr
@@ -184,4 +228,4 @@ type
     of EkCharLiteral: charLiteralExpr*: CharLiteralExpr
     of EkBoolLiteral: boolLiteralExpr*: BoolLiteralExpr
     of EkNilLiteral: discard
-    of EkType: typeExpr*: Type
+    of EkStructLiteral: structLiteralExpr*: StructLiteralExpr

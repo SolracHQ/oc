@@ -1,92 +1,124 @@
-// We will include the C standard library to use printf
-// To include the stdio library, we need to use the #[include] annotation
+// Include C standard library printf
 #[include(from="<stdio.h>", name="printf")]
-/*
-  _ is an especial case of identifier, only _ is allowed any other identifier that starts with _ is not allowed
-*/
+// Only '_' is allowed as a special identifier
 fun printf(format: CString, _: CVarArgs)
 
+// Print a boolean value as "true" or "false"
 fun printBool(b: Bool) {
-  if(b) {
+  if (b) {
     printf(c"true\n")
   } else {
     printf(c"false\n")
   }
 }
 
+// Convert Bool to C string
 fun boolToStr(b: Bool): CString {
-  if(b) {
+  if (b) {
     return c"true"
   } else {
     return c"false"
   }
 }
 
+// Compare n with 32, return 1, 0, or -1
 fun biggerThan32(n: Int): Int {
-  if(n > 32)
+  if (n > 32) {
     return 1
-  elif(n < 32)
+  } elif (n < 32) {
     return -1
-  else 
+  } else {
     return 0
+  }
 }
 
+// Simple struct example
+struct MyStruct {
+  a: Int32 = 9,
+  b: Int32
+}
+
+// Print struct fields
+fun printMyStruct(s: MyStruct) {
+  printf(c"my struct: %ld %ld\n", s.a, s.b)
+}
+
+// Modify struct field via pointer
+fun modifyStruct(s: *MyStruct) {
+  s.a = 10
+  s.b = 20
+}
+
+// Global constant
 pub let c: Int32 = 43
-let d = 44
 
-// Main function can have any name
-// but must be annotated with #[entrypoint]
 #[entrypoint]
-fun duck(): Int32 {
+fun example(): Int32 {
 
-  // this function can be used only in the main function
+  // Print an integer
   fun printInt(i: Int32) {
-    // Print an integer using printf
     printf(c"%d\n", i)
   }
 
-  fun printIntPtr(i: ro* Int) {
-    // Print an integer using printf
-    printf(c"%ld\n", *i)
+  // Print value pointed by a read-only pointer
+  fun printIntPtr(i: ro* Int32) {
+    printf(c"Value pointed by pointer: %d\n", *i)
   }
 
-  // Here we use a c string literal
-  // The c prefix indicates that this is a C string literal
-  printf(c"Hello, World!\n")
+  printf(c"== Hello, World! ==\n")
 
-  // test math
+  // Math example
+  printf(c"== Math example ==\n")
   let a: Int32 = c * 2
   let b = 8 + a
-  printInt(b * n87())
-  printIntPtr(&d)
+  printf(c"a = %d, b = %d\n", a, b)
+  printInt(b)
 
-  // test bool
+  // Pointer example
+  printf(c"== Pointer (ro*) example ==\n")
+  let x: Int32 = 99
+  let px: ro* Int32 = &x
+  printIntPtr(px)
+
+  // Bool example
+  printf(c"== Bool example ==\n")
   printBool(true or false)
   printBool(true and false)
+  printf(c"is c == 43: %s\n", boolToStr(c == 43))
 
-  printf(c"is d == 44: %s\n", boolToStr(d == 44))
-  printf(c"is d == 43: %s\n", boolToStr(d == 43))
-
+  // Comparison example
+  printf(c"== Comparison example ==\n")
   printf(c"biggerThan32(43): %ld\n", biggerThan32(43))
   printf(c"biggerThan32(32): %ld\n", biggerThan32(32))
   printf(c"biggerThan32(31): %ld\n", biggerThan32(31))
 
-  // recursive fibonacci
-  fun fib(n: Int32): Int32 {
-    var fibonacci: Int32 = 0
-    if(n <= 1)
-      fibonacci = n
-    else
-      fibonacci = fib(n - 1) + fib(n - 2)
-    return fibonacci
+  // Recursive fibonacci
+  printf(c"== Fibonacci example ==\n")
+  fun fib(n: Int): Int {
+    if (n <= 1) {
+      return n
+    } else {
+      return fib(n - 1) + fib(n - 2)
+    }
   }
 
-  // test fibonacci
-  printInt(fib(40))
+  // Print Fibonacci numbers using a while loop
+  printf(c"Fibonacci numbers:\n")
+  var index = 0
+  while (index < 10) {
+    printf(c"fib(%ld) = %ld\n", index, fib(index))
+    index = index + 1
+  }
+
+  // Struct example
+  printf(c"== Struct example ==\n")
+  let s = MyStruct{b: 2}
+  printMyStruct(s)
+
+  printf(c"== Struct pointer example ==\n")
+  var s2 = MyStruct{b: 3}
+  modifyStruct(&s2)
+  printMyStruct(s2)
 
   return 0
-}
-
-fun n87(): Int32 {
-  return 87
 }

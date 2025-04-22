@@ -1,4 +1,5 @@
 import std/options
+import std/tables
 import ./types
 
 type
@@ -28,14 +29,24 @@ type
     CharPtrT
     VarArgsT
 
-  CType* = object
+  CStructMember* = object
+    name*: string
+    ctype*: CType
+
+  CStructType* = object
+    name*: string
+    members*: Table[string, CStructMember]
+
+  CType* = ref object
     case kind*: CTypeKind
     of CkPrimitive:
       primitive*: CPrimitive
-    of CkStruct, CkUnion, CkEnum, CkTypedef:
+    of CkStruct:
+      structType*: CStructType
+    of CkUnion, CkEnum, CkTypedef:
       discard # TODO
     of CkPointer, CkConstPointer:
-      ctype*: ref CType
+      ctype*: CType
 
 proc `==`*(a, b: CType): bool =
   ## Compares two CType objects for equality
@@ -45,13 +56,29 @@ proc `==`*(a, b: CType): bool =
   case a.kind
   of CkPrimitive:
     result = a.primitive == b.primitive
-  of CkStruct, CkUnion, CkEnum, CkTypedef:
+  of CkStruct:
+    if a.structType.name != b.structType.name:
+      return false
+    if a.structType.members.len != b.structType.members.len:
+      return false
+    for key, value in a.structType.members:
+      let am = a.structType.members[key]
+      let bm = b.structType.members[key]
+      if am.name != bm.name:
+        return false
+      if am.ctype.isNil or bm.ctype.isNil:
+        if not (am.ctype.isNil and bm.ctype.isNil):
+          return false
+      elif am.ctype != bm.ctype:
+        return false
+    result = true
+  of CkUnion, CkEnum, CkTypedef:
     result = true # To be implemented when these types are fully defined
   of CkPointer, CkConstPointer:
     if a.ctype.isNil or b.ctype.isNil:
       result = a.ctype.isNil and b.ctype.isNil
     else:
-      result = a.ctype[] == b.ctype[]
+      result = a.ctype == b.ctype
 
 proc `$`*(t: CType): string =
   ## Returns a string representation of a CType
@@ -59,7 +86,11 @@ proc `$`*(t: CType): string =
   of CkPrimitive:
     result = $t.primitive
   of CkStruct:
-    result = "struct" # To be expanded
+    result = "struct " & t.structType.name & " {"
+    for i, m in t.structType.members:
+      result.add(m.name & ": " & (if m.ctype.isNil: "nil" else: $m.ctype))
+      result.add(", ")
+    result.add("}")
   of CkUnion:
     result = "union" # To be expanded
   of CkEnum:
@@ -70,12 +101,12 @@ proc `$`*(t: CType): string =
     if t.ctype.isNil:
       result = "pointer(nil)"
     else:
-      result = "pointer(" & $t.ctype[] & ")"
+      result = "pointer(" & $t.ctype & ")"
   of CkConstPointer:
     if t.ctype.isNil:
       result = "const pointer(nil)"
     else:
-      result = "const pointer(" & $t.ctype[] & ")"
+      result = "const pointer(" & $t.ctype & ")"
 
 proc getCString*(t: CType): string =
   ## Returns the C string representation of a CType
@@ -113,7 +144,7 @@ proc getCString*(t: CType): string =
     of VarArgsT:
       result = "..."
   of CkStruct:
-    result = "struct" # To be expanded
+    result = "struct " & t.structType.name
   of CkUnion:
     result = "union" # To be expanded
   of CkEnum:
@@ -124,12 +155,12 @@ proc getCString*(t: CType): string =
     if t.ctype.isNil:
       result = "void*"
     else:
-      result = getCString(t.ctype[]) & "*"
+      result = getCString(t.ctype) & "*"
   of CkConstPointer:
     if t.ctype.isNil:
       result = "const void*"
     else:
-      result = getCString(t.ctype[]) & " const*"
+      result = getCString(t.ctype) & " const*"
 
 proc toCType*(t: Type): Option[CType] =
   ## Converts a Type to a CType
@@ -174,20 +205,20 @@ proc toCType*(t: Type): Option[CType] =
       result = some(CType(kind: CkPointer, ctype: nil))
     else:
       var innerCType = new CType
-      let innerCTypeOpt = toCType(t.pointerTo[])
+      let innerCTypeOpt = toCType(t.pointerTo)
       if innerCTypeOpt.isNone:
         return none(CType)
-      innerCType[] = innerCTypeOpt.get()
+      innerCType = innerCTypeOpt.get()
       result = some(CType(kind: CkPointer, ctype: innerCType))
   of TkROPointer:
     if t.pointerTo.isNil:
       result = some(CType(kind: CkConstPointer, ctype: nil))
     else:
       var innerCType = new CType
-      let innerCTypeOpt = toCType(t.pointerTo[])
+      let innerCTypeOpt = toCType(t.pointerTo)
       if innerCTypeOpt.isNone:
         return none(CType)
-      innerCType[] = innerCTypeOpt.get()
+      innerCType = innerCTypeOpt.get()
       result = some(CType(kind: CkConstPointer, ctype: innerCType))
   of TkMeta:
     case t.metaKind
@@ -198,3 +229,11 @@ proc toCType*(t: Type): Option[CType] =
       # All other meta types cannot be directly represented in C
       # They should be resolved before transpilation
       return none(CType)
+  of TkStruct:
+    var cstruct = CStructType(name: t.structType.name)
+    for name, m in t.structType.members:
+      let ctypeOpt = toCType(m.typ)
+      if ctypeOpt.isNone:
+        return none(CType)
+      cstruct.members[name] = CStructMember(name: m.name, ctype: ctypeOpt.get())
+    result = some(CType(kind: CkStruct, structType: cstruct))

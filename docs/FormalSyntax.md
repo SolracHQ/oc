@@ -14,20 +14,36 @@ Program        ::= Statement*
 Statement      ::= VarDecl
                  | LetDecl
                  | FunDecl
+                 | TypeDecl
                  | BlockStmt
                  | ExprStmt
                  | IfStmt
+                 | WhileStmt
+                 | ReturnStmt
 
 VarDecl        ::= [Annotation] "var" Identifier [":" Type] ["=" Expression] ( ";" | "\n" )
 LetDecl        ::= [Annotation] "let" Identifier [":" Type] ["=" Expression] ( ";" | "\n" )
 FunDecl        ::= [Annotation] "pub"? "fun" Identifier "(" Parameters ")" [":" Type] BlockStmt
+                 | "fun" Identifier "(" Parameters ")" [":" Type] BlockStmt   # Nested function (inside BlockStmt)
+TypeDecl       ::= ("pub")? "type" Identifier "=" Type ( ";" | "\n" )
+                 | ("pub")? StructDecl
 BlockStmt      ::= "{" Statement* "}"
 ExprStmt       ::= Expression ( ";" | "\n" )
 
-IfStmt         ::= "if" "(" Expression ")" Statement ( "elif" "(" Expression ")" Statement )* [ "else" Statement ]
+IfStmt         ::= "if" "(" Expression ")" BlockStmt ( "elif" "(" Expression ")" BlockStmt )* [ "else" BlockStmt ]
+WhileStmt      ::= "while" "(" Expression ")" BlockStmt
+ReturnStmt     ::= "return" [Expression] ( ";" | "\n" )
 
 Parameters     ::= (Parameter ("," Parameter)*)? 
-Parameter      ::= Identifier ":" Type
+Parameter      ::= ("pub")? Identifier ":" Type
+```
+
+## Structs
+
+```bnf
+StructDecl     ::= "struct" Identifier "{" Parameters "}" ( ";" | "\n" )
+StructMemberList ::= (StructMember ("," StructMember)*)?
+StructMember   ::= Identifier ":" Type ( "=" Expression )?
 ```
 
 ## Expressions
@@ -57,7 +73,7 @@ AdditiveExpr   ::= MultiplicativeExpr (("+" | "-") MultiplicativeExpr)*
 MultiplicativeExpr ::= UnaryExpr (("*" | "/" | "%") UnaryExpr)*
 
 # Unary operations
-UnaryExpr      ::= ("-" | "!" ) UnaryExpr
+UnaryExpr      ::= ("-" | "!" | "&" | "*" ) UnaryExpr
                  | MemberExpr
 
 # Member access and function calls (same precedence)
@@ -69,8 +85,14 @@ MemberExpr     ::= PrimaryExpr
 PrimaryExpr    ::= Identifier
                  | Literal
                  | GroupExpr
+                 | StructLiteral
 
 GroupExpr      ::= "(" Expression ")"
+
+StructLiteral  ::= Identifier "{" StructLiteralMembers "}"
+
+StructLiteralMembers ::= (StructLiteralMember ("," StructLiteralMember)*)?
+StructLiteralMember  ::= Identifier ":" Expression
 
 Arguments      ::= (Expression ("," Expression)*)?
 ```
@@ -82,7 +104,7 @@ BinaryOp       ::= "+" | "-" | "*" | "/" | "%"
                  | "==" | "!=" | "<" | ">" | "<=" | ">="
                  | "and" | "or"
 
-UnaryOp        ::= "-" | "!"
+UnaryOp        ::= "-" | "!" | "&" | "*"
 ```
 
 ## Literals
@@ -91,9 +113,12 @@ UnaryOp        ::= "-" | "!"
 Literal        ::= IntLiteral
                  | FloatLiteral
                  | StringLiteral
+                 | CStringLiteral
                  | CharLiteral
                  | BoolLiteral
                  | "nil"
+
+CStringLiteral ::= "c" StringLiteral
 
 BoolLiteral    ::= "true" | "false"
 ```
@@ -101,8 +126,13 @@ BoolLiteral    ::= "true" | "false"
 ## Types
 
 ```bnf
-Type           ::= PrimitiveType
+Type           ::= PointerType
+                 | PrimitiveType
                  | Identifier  # User-defined type
+
+PointerType    ::= [ReadOnly] "*" Type
+
+ReadOnly       ::= "ro"   # read-only, only for pointers
 
 PrimitiveType  ::= "Int" | "Int8" | "Int16" | "Int32" | "Int64" | "Int128"
                  | "UInt" | "UInt8" | "UInt16" | "UInt32" | "UInt64"

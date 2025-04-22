@@ -68,6 +68,8 @@ type
     TkIf ## if
     TkElse ## else
     TkElif ## elif
+    TkWhile ## while
+    TkStruct ## struct
 
     # Symbols
     TkPlus ## +
@@ -131,6 +133,9 @@ const Keywords* = {
   "if": TkIf,
   "else": TkElse,
   "elif": TkElif,
+  "while": TkWhile,
+  "struct": TkStruct,
+  "type": TkType,
 
   # Primitive types
   "Int": TkInt,
@@ -154,7 +159,6 @@ const Keywords* = {
   # Meta types
   "CVarArgs": TkCVarArgs,
   "VarArgs": TkVarArgs,
-  "type": TkType,
 }.toTable()
 
 const Primitives* = {
@@ -230,6 +234,8 @@ proc `$`*(kind: TokenKind): string =
   of TkIf: "'if'"
   of TkElse: "'else'"
   of TkElif: "'elif'"
+  of TkWhile: "'while'"
+  of TkStruct: "'struct'"
   of TkROPointer: "'ro*'"
   of TkPlus: "'+'"
   of TkMinus: "'-'"

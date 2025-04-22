@@ -7,6 +7,8 @@ import symbol_mapper
 import reachability_checker
 import type_inferencer
 import type_checker
+import type_resolver
+import literal_expander
 
 type Analyzer* = ref object
   fileInfo*: FileInfo
@@ -17,10 +19,13 @@ type Analyzer* = ref object
   reachabilityChecker: ReachabilityChecker
   typeInferencer: TypeInferencer
   typeChecker: TypeChecker
+  typeResolver: TypeResolver
 
-proc analyzerError(analyzer: Analyzer, position: Position, msg: string) =
+proc analyzerError(
+    analyzer: Analyzer, position: Position, msg: string, hint: string = ""
+) =
   ## Logs an error during analysis
-  logError("Analyzer", msg, position)
+  logError("Analyzer", position, msg, hint)
   analyzer.hasError = true
 
 proc newAnalyzer*(fileInfo: FileInfo): Analyzer =
@@ -33,10 +38,11 @@ proc newAnalyzer*(fileInfo: FileInfo): Analyzer =
   result.module = module
 
   # Initialize specialized analyzers
-  result.symbolMapper = newSymbolMapper(fileInfo, result.scope)
-  result.reachabilityChecker = newReachabilityChecker(fileInfo)
-  result.typeInferencer = newTypeInferencer(fileInfo)
-  result.typeChecker = newTypeChecker(fileInfo)
+  result.symbolMapper = SymbolMapper()
+  result.reachabilityChecker = ReachabilityChecker()
+  result.typeInferencer = TypeInferencer()
+  result.typeChecker = TypeChecker()
+  result.typeResolver = TypeResolver()
 
 proc analyze*(
     analyzer: Analyzer
@@ -53,11 +59,20 @@ proc analyze*(
   if analyzer.hasError:
     return (analyzer.hasError, analyzer.scope, analyzer.module)
 
+  # Stage 1.5: Expand literals (struct/function call defaults)
+  expandLiterals(analyzer.scope, analyzer.module)
+
   # Stage 2: Analyze reachability
   analyzeReachability(analyzer.reachabilityChecker, analyzer.scope, analyzer.module)
   analyzer.hasError = analyzer.hasError or analyzer.reachabilityChecker.hasError
 
   # If reachability analysis failed, don't proceed to type inference
+  if analyzer.hasError:
+    return (analyzer.hasError, analyzer.scope, analyzer.module)
+
+  resolveStmtTypes(analyzer.typeResolver, analyzer.scope, analyzer.module)
+  analyzer.hasError = analyzer.hasError or analyzer.typeResolver.hasError
+
   if analyzer.hasError:
     return (analyzer.hasError, analyzer.scope, analyzer.module)
 
