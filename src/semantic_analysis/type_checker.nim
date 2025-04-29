@@ -69,7 +69,7 @@ proc analyzeTypeCheckingExpr(checker: TypeChecker, scope: Scope, expr: Expr) =
 
     # Check left side is assignable (has address or is pointer, not ro pointer)
     let leftType = left.exprType
-    var canAssign = leftType.hasAddress
+    var canAssign = leftType.hasAddress and not leftType.fromRO
 
     if not canAssign:
       checker.typeCheckError(

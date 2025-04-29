@@ -100,15 +100,8 @@ proc `==`*(a, b: Type): bool =
       result = a.name == b.name
   of TkStruct:
     if a.structType.name != b.structType.name:
+      # this is enough to distinguish structs since name is the canonical name and is unique
       return false
-    if a.structType.members.len != b.structType.members.len:
-      return false
-    for name, am in a.structType.members:
-      if not b.structType.members.hasKey(name):
-        return false
-      let bm = b.structType.members[name]
-      if am.name != bm.name or am.visibility != bm.visibility or am.typ != bm.typ:
-        return false
     result = true
 
 proc `$`*(t: Type): string =
@@ -135,7 +128,7 @@ proc `$`*(t: Type): string =
     of MkToInfer:
       result = "ToInfer"
     of MkNamedType:
-      result = "Unresolved(" & t.name & ")"
+      result = "Named(" & t.name & ")"
     of MkResolveError:
       result = "ResolveError(" & t.name & ")"
     of MkAnyInt:
@@ -147,11 +140,7 @@ proc `$`*(t: Type): string =
     of MkAnyPointer:
       result = "AnyPointer"
   of TkStruct:
-    result = "struct " & t.structType.name & " {"
-    for _, m in t.structType.members:
-      result.add($m.visibility & " " & m.name & ": " & $m.typ)
-      result.add(", ")
-    result.add("}")
+    result = "struct " & t.structType.name
 
 import std/strutils
 
@@ -193,6 +182,3 @@ proc asTree*(t: Type, indent: int = 0): string =
       result.add "\n" & indentStr & "  AnyPointer\n"
   of TkStruct:
     result.add indentStr & "Struct: " & t.structType.name & "\n"
-    for _, m in t.structType.members:
-      result.add indentStr & "  Member: " & $m.visibility & " " & m.name & "\n"
-      result.add asTree(m.typ, indent + 2)

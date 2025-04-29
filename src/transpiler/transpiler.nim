@@ -455,27 +455,147 @@ proc transpileFunction(
     declarationOnly: bool = false,
 ): Option[CStmt] =
   let funDecl = function.declStmt.funDeclStmt
-  if function.declStmt.annotations["include"].isSome() and
-      funDecl.parameters.anyIt(
-        it.paramType.kind == TkMeta and it.paramType.metaKind == MkCVarArgs
-      ):
-    return
-      CStmt(
-        kind: CskDefine,
+  let hasInclude = function.declStmt.annotations["include"].isSome()
+  let hasVarArgs = funDecl.parameters.anyIt(
+    it.paramType.kind == TkMeta and it.paramType.metaKind == MkCVarArgs
+  )
+  if hasInclude:
+    let includeNameOpt = function.declStmt.annotations["include", "name"]
+    if includeNameOpt.isNone:
+      transpilerError(
+        transpiler,
+        function.declStmt.pos,
+        "Missing 'name' property in include annotation for function: " & function.canonicalName
+      )
+      return none(CStmt)
+    let includeName = includeNameOpt.get()
+    if hasVarArgs:
+      # Case 1: varargs, just define the canonical name as the actual function name
+      return
+        CStmt(
+          kind: CskDefine,
+          pos: function.declStmt.pos,
+          comments: function.declStmt.comments,
+          defineNode: ast_c.DefineNode(
+            name: function.canonicalName,
+            value:
+              CExpr(
+                kind: CekIdentifier,
+                pos: function.declStmt.pos,
+                identifierNode: ast_c.IdentifierNode(
+                  name: includeName
+                ),
+              ).some,
+          ),
+        ).some
+    elif not declarationOnly:
+      # Case 2: not varargs, must not have a body
+      if funDecl.body.isSome:
+        transpilerError(
+          transpiler,
+          function.declStmt.pos,
+          "Function with #[include] annotation cannot have a body: " & function.canonicalName
+        )
+        return none(CStmt)
+      # Generate a function definition that calls the actual function
+      let name = function.canonicalName
+      let returnTypeOpt = funDecl.returnType.toCType()
+      if returnTypeOpt.isNone:
+        transpilerError(
+          transpiler,
+          funDecl.identifierPos,
+          "Invalid return type for function: " & name,
+          "Metatypes cannot be mapped to C types",
+        )
+        return none(CStmt)
+      let returnTypeC = returnTypeOpt.get()
+      let isStatic = function.declStmt.annotations["static"].isSome()
+      let isExtern = function.declStmt.annotations["extern"].isSome()
+      let isInline = function.declStmt.annotations["inline"].isSome()
+      var parameters: seq[ast_c.ParameterNode] = @[]
+      var callArgs: seq[CExpr] = @[]
+      for param in funDecl.parameters:
+        let paramTypeOpt = param.paramType.toCType()
+        if paramTypeOpt.isNone:
+          transpilerError(
+            transpiler,
+            param.namePos,
+            "Invalid parameter type for function: " & name,
+            "Metatypes cannot be mapped to C types" & $param.paramType,
+          )
+          return none(CStmt)
+        let paramTypeC = paramTypeOpt.get()
+        parameters.add(ast_c.ParameterNode(name: param.name, paramType: paramTypeC))
+        callArgs.add(
+          CExpr(
+            kind: CekIdentifier,
+            pos: function.declStmt.pos,
+            identifierNode: ast_c.IdentifierNode(name: param.name)
+          )
+        )
+      # Build the call to the actual function
+      let callExpr = CExpr(
+        kind: CekFunctionCall,
         pos: function.declStmt.pos,
+        functionCallNode: ast_c.FunctionCallNode(
+          callee: CExpr(
+            kind: CekIdentifier,
+            pos: function.declStmt.pos,
+            identifierNode: ast_c.IdentifierNode(name: includeName)
+          ),
+          arguments: callArgs
+        )
+      )
+      # Build the function body: return callExpr if not void, else just callExpr;
+      var bodyStmts: seq[CStmt] = @[]
+      if returnTypeC.kind == CkPrimitive and returnTypeC.primitive == VoidT:
+        bodyStmts.add(
+          CStmt(
+            kind: CskExprStmt,
+            pos: function.declStmt.pos,
+            comments: @[],
+            exprStmtNode: ast_c.ExprStmtNode(expression: callExpr)
+          )
+        )
+      else:
+        bodyStmts.add(
+          CStmt(
+            kind: CskReturnStmt,
+            pos: function.declStmt.pos,
+            comments: @[],
+            returnStmtNode: ast_c.ReturnStmtNode(expression: some(callExpr))
+          )
+        )
+      let declNode = ast_c.FunctionDeclNode(
+        name: name,
+        returnType: returnTypeC,
+        parameters: parameters,
+        isStatic: isStatic,
+        isExtern: isExtern,
+        isInline: isInline
+      )
+      let declStmt = CStmt(
+        kind: CskFunctionDecl,
+        pos: funDecl.identifierPos,
         comments: function.declStmt.comments,
-        defineNode: ast_c.DefineNode(
-          name: function.canonicalName,
-          value:
-            CExpr(
-              kind: CekIdentifier,
-              pos: function.declStmt.pos,
-              identifierNode: ast_c.IdentifierNode(
-                name: function.declStmt.annotations["include", "name"].get()
-              ),
-            ).some,
-        ),
-      ).some
+        functionDeclNode: declNode
+      )
+      let bodyStmt = CStmt(
+        kind: CskBlockStmt,
+        pos: function.declStmt.pos,
+        comments: @[],
+        blockStmtNode: ast_c.BlockStmtNode(statements: bodyStmts)
+      )
+      return
+        CStmt(
+          kind: CskFunctionDef,
+          pos: function.declStmt.pos,
+          comments: function.declStmt.comments,
+          functionDefNode: ast_c.FunctionDefNode(
+            declaration: declStmt,
+            body: bodyStmt
+          )
+        ).some
   let name = function.canonicalName
   let returnType = funDecl.returnType.toCType()
   if returnType.isNone:
@@ -818,10 +938,7 @@ proc transpileCFile(
         (symbol.kind == Variable and symbol.declStmt.varDeclStmt.isPublic):
       continue
     let headerOpt = symbol.declStmt.annotations["include", "from"]
-    if headerOpt.isSome() and symbol.kind == Function and
-        symbol.declStmt.funDeclStmt.parameters[^1].paramType.kind == TkMeta and
-        symbol.declStmt.funDeclStmt.parameters[^1].paramType.metaKind == MkCVarArgs:
-      # Only include if it's a varargs function, otherwise it's included in the C file
+    if headerOpt.isSome() and symbol.kind == Function:
       let header: string = headerOpt.get()
       let isSystem = header.startsWith("<") and header.endsWith(">")
       moduleC.translationUnitNode.includes.incl(

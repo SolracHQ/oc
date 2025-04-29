@@ -162,7 +162,7 @@ proc getCString*(t: CType): string =
     else:
       result = getCString(t.ctype) & " const*"
 
-proc toCType*(t: Type): Option[CType] =
+proc toCType*(t: Type, topLevel: bool = true): Option[CType] =
   ## Converts a Type to a CType
   ## Returns none if the type cannot be represented in C
   case t.kind
@@ -205,7 +205,7 @@ proc toCType*(t: Type): Option[CType] =
       result = some(CType(kind: CkPointer, ctype: nil))
     else:
       var innerCType = new CType
-      let innerCTypeOpt = toCType(t.pointerTo)
+      let innerCTypeOpt = toCType(t.pointerTo, false)
       if innerCTypeOpt.isNone:
         return none(CType)
       innerCType = innerCTypeOpt.get()
@@ -215,7 +215,7 @@ proc toCType*(t: Type): Option[CType] =
       result = some(CType(kind: CkConstPointer, ctype: nil))
     else:
       var innerCType = new CType
-      let innerCTypeOpt = toCType(t.pointerTo)
+      let innerCTypeOpt = toCType(t.pointerTo, false)
       if innerCTypeOpt.isNone:
         return none(CType)
       innerCType = innerCTypeOpt.get()
@@ -231,8 +231,10 @@ proc toCType*(t: Type): Option[CType] =
       return none(CType)
   of TkStruct:
     var cstruct = CStructType(name: t.structType.name)
+    if not topLevel:
+      return some(CType(kind: CkStruct, structType: cstruct))
     for name, m in t.structType.members:
-      let ctypeOpt = toCType(m.typ)
+      let ctypeOpt = toCType(m.typ, false)
       if ctypeOpt.isNone:
         return none(CType)
       cstruct.members[name] = CStructMember(name: m.name, ctype: ctypeOpt.get())

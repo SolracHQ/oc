@@ -1,0 +1,69 @@
+#[include(from="<stdio.h>", name="printf")]
+fun printf(format: CString, _: CVarArgs)
+#[include(from="<stdlib.h>", name="malloc")]
+fun malloc(size: Int): *Node
+#[include(from="<stdlib.h>", name="free")]
+fun free(ptr: *Node)
+#[include(name="sizeof")]
+fun sizeof(node: Node): Int
+
+struct Node {
+  data: Int,
+  next: *Node
+}
+
+struct LinkedList {
+  head: *Node,
+  tail: *Node
+}
+
+let node: Node = Node{data: 0, next: nil}
+
+#[entrypoint]
+fun example(): Int {
+  // Create a new linked list
+  var list: LinkedList = LinkedList{head: nil, tail: nil}
+
+  // Add a node to the list
+  fun addNode(list: *LinkedList, data: Int) {
+    var newNode: *Node = malloc(sizeof(node))
+    newNode.data = data
+    newNode.next = nil
+
+    if (list.head == nil) {
+      list.head = newNode
+      list.tail = newNode
+    } else {
+      list.tail.next = newNode
+      list.tail = newNode
+    }
+  }
+
+  // Print the linked list
+  fun printList(list: *LinkedList) {
+    var current: *Node = list.head
+    while (current != nil) {
+      printf(c"%ld ", current.data)
+      current = current.next
+    }
+    printf(c"\n")
+  }
+
+  // Add nodes to the list
+  addNode(&list, 1)
+  addNode(&list, 2)
+  addNode(&list, 3)
+
+  // Print the linked list
+  printList(&list)
+
+  // Free the memory allocated for the nodes
+  var current: *Node = list.head
+  while (current != nil) {
+    let next: *Node = current.next
+    free(current)
+    current = next
+  }
+
+  return 0
+}

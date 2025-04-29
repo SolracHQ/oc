@@ -617,9 +617,6 @@ proc parseTypeDecl(parser: var Parser, isPublic: bool): Stmt =
   let identifier = idTok.lexeme
   discard parser.consume({TKEqual}, "Expect '=' after type name")
   let typeAnnotation = parser.parseType()
-  # Optional semicolon/newline after type decl
-  if parser.check({TKSemicolon, TKNewline}):
-    discard parser.advance()
   return newTypeDeclStmt(isPublic, identifier, typeAnnotation, typeTok.pos)
 
 proc parseStatement(parser: var Parser, requireNewLine: bool = true): Stmt =
@@ -654,7 +651,7 @@ proc parseStatement(parser: var Parser, requireNewLine: bool = true): Stmt =
     elif parser.match({TKFun}):
       result = parser.parseFunDecl(pub)
     elif parser.match({TKType}):
-      # type definition or struct definition
+      # type definition
       if parser.check({TKIdent}) and parser.peek(1).isSome and
           parser.peek(1).get().kind == TKEqual:
         result = parser.parseTypeDecl(pub)

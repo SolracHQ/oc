@@ -13,8 +13,10 @@ proc typeResolveError*(
   logError("TypeResolver", pos, msg, hint)
   resolver.hasError = true
 
+type StringSet = ref HashSet[string]
+
 proc resolveType*(
-    resolver: TypeResolver, scope: Scope, typ: Type, pos: Position
+    resolver: TypeResolver, scope: Scope, typ: Type, pos: Position, solvedStructs: StringSet = StringSet()
 ): Type =
   ## Resolves a type to its actual representation (resolves type aliases)
   var current = typ
@@ -39,24 +41,21 @@ proc resolveType*(
   # Recursively resolve pointer types
   if current.kind == TkPointer or current.kind == TkROPointer:
     if not current.pointerTo.isNil:
-      let resolvedTo = resolveType(resolver, scope, current.pointerTo, pos)
+      let resolvedTo = resolveType(resolver, scope, current.pointerTo, pos, solvedStructs)
       if resolvedTo != current.pointerTo:
-        # Only create a new pointer type if the target changed
+        # Only create a new pointer type if the target changedW
         let oldHasAddress = current.hasAddress
         let oldFromRO = current.fromRO
         current = newPointerType(resolvedTo, current.kind == TkROPointer)
         current.hasAddress = oldHasAddress
         current.fromRO = oldFromRO
-  # Recursively resolve struct member types
   elif current.kind == TkStruct:
-    var changed = false
-    let structType = current.structType
-    for name, member in structType.members:
-      let resolvedMemberType = resolveType(resolver, scope, member.typ, pos)
-      if resolvedMemberType != member.typ:
-        current.structType.members[name].typ = resolvedMemberType
-        changed = true
-    # No need to create a new struct type, just update in place
+    # Resolve struct types
+    if current.structType.name in solvedStructs[]:
+      return current
+    solvedStructs[].incl(current.structType.name)
+    for i, m in current.structType.members:
+      current.structType.members[i].typ = resolveType(resolver, scope, m.typ, pos, solvedStructs)
   # Preserve hasAddress and fromRO for all resolved types
   current.hasAddress = typ.hasAddress
   current.fromRO = typ.fromRO
@@ -363,8 +362,10 @@ proc resolveExprType*(resolver: TypeResolver, scope: Scope, expr: Expr): Type =
     var objType = resolveExprType(resolver, scope, expr.memberAccessExpr.obj)
     # If objType is a pointer or const pointer to struct, dereference
     if objType.kind in {TkPointer, TkROPointer} and not objType.pointerTo.isNil and
-        objType.pointerTo.kind == TkStruct:
-      objType = objType.pointerTo
+        (objType.pointerTo.kind == TkStruct or objType.pointerTo.kind == TkMeta and objType.pointerTo.metaKind == MkNamedType):
+      objType = resolveType(
+        resolver, scope, objType.pointerTo, expr.memberAccessExpr.obj.pos
+      )
       objType.hasAddress = true
       objType.fromRO = objType.kind == TkROPointer
     if objType.kind == TkStruct:

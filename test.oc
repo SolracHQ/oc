@@ -38,8 +38,11 @@ struct MyStruct {
   b: Int32
 }
 
+type A = MyStruct
+type B = A
+
 // Print struct fields
-fun printMyStruct(s: MyStruct) {
+fun printMyStruct(s: B) {
   printf(c"my struct: %ld %ld\n", s.a, s.b)
 }
 

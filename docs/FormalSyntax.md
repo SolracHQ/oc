@@ -21,8 +21,8 @@ Statement      ::= VarDecl
                  | WhileStmt
                  | ReturnStmt
 
-VarDecl        ::= [Annotation] "var" Identifier [":" Type] ["=" Expression] ( ";" | "\n" )
-LetDecl        ::= [Annotation] "let" Identifier [":" Type] ["=" Expression] ( ";" | "\n" )
+VarDecl        ::= [Annotation] "pub"? "var" Identifier [":" Type] ["=" Expression] ( ";" | "\n" )
+LetDecl        ::= [Annotation] "pub"? "let" Identifier [":" Type] ["=" Expression] ( ";" | "\n" )
 FunDecl        ::= [Annotation] "pub"? "fun" Identifier "(" Parameters ")" [":" Type] BlockStmt
                  | "fun" Identifier "(" Parameters ")" [":" Type] BlockStmt   # Nested function (inside BlockStmt)
 TypeDecl       ::= ("pub")? "type" Identifier "=" Type ( ";" | "\n" )
@@ -54,8 +54,7 @@ StructMember   ::= Identifier ":" Type ( "=" Expression )?
 Expression     ::= AssignmentExpr
 
 # Assignment (lowest precedence)
-AssignmentExpr ::= LogicalExpr
-                 | Identifier "=" AssignmentExpr
+AssignmentExpr ::= LogicalExpr ( "=" AssignmentExpr )?
 
 # Logical operators
 LogicalExpr    ::= EqualityExpr (("and" | "or") EqualityExpr)*

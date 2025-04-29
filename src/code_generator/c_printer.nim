@@ -49,180 +49,180 @@ proc tokenKindToCOperator(kind: TokenKind): string =
 proc cExprToString*(node: CExpr, indent: int = 0): string
 
 proc cStmtToString*(node: CStmt, indent: int = 0): string =
-  let ind = repeat(' ', indent)
+  let indentStr = repeat(' ', indent)
   let lineInfo =
     if node.pos.file != nil:
-      "" #ind & "#line " & $node.pos.line & "  \"" & absPath(node.pos.file) & "\"\n"
+      "" #indentStr & "#line " & $node.pos.line & "  \"" & absPath(node.pos.file) & "\"\n"
     else:
       ""
   case node.kind
   of CskTranslationUnit:
-    var s = ""
-    for inc in node.translationUnitNode.includes:
-      s.add(cStmtToString(CStmt(kind: CskInclude, includeNode: inc), indent))
-    for decl in node.translationUnitNode.declarations:
-      s.add(cStmtToString(decl, indent))
-    result = lineInfo & s
+    var resultStr = ""
+    for includeStmt in node.translationUnitNode.includes:
+      resultStr.add(cStmtToString(CStmt(kind: CskInclude, includeNode: includeStmt), indent))
+    for declaration in node.translationUnitNode.declarations:
+      resultStr.add(cStmtToString(declaration, indent))
+    result = lineInfo & resultStr
   of CskInclude:
     if node.includeNode.isSystem:
-      result = lineInfo & ind & "#include " & node.includeNode.file & "\n"
+      result = lineInfo & indentStr & "#include " & node.includeNode.file & "\n"
     else:
-      result = lineInfo & ind & "#include \"" & node.includeNode.file & "\"\n"
+      result = lineInfo & indentStr & "#include \"" & node.includeNode.file & "\"\n"
   of CskDefine:
-    result = lineInfo & ind & "#define " & node.defineNode.name
+    result = lineInfo & indentStr & "#define " & node.defineNode.name
     if node.defineNode.value.isSome:
       result.add(" ")
       result.add(cExprToString(node.defineNode.value.get(), 0))
     result.add("\n")
   of CskIfNotDef:
-    result = lineInfo & ind & "#ifndef " & node.ifNotDefNode.name & "\n"
-    for b in node.ifNotDefNode.body:
-      result.add(cStmtToString(b, indent))
+    result = lineInfo & indentStr & "#ifndef " & node.ifNotDefNode.name & "\n"
+    for bodyStmt in node.ifNotDefNode.body:
+      result.add(cStmtToString(bodyStmt, indent))
     if node.ifNotDefNode.elseBody.len > 0:
-      result.add(ind & "#else\n")
-      for b in node.ifNotDefNode.elseBody:
-        result.add(cStmtToString(b, indent))
-    result.add(ind & "#endif\n")
+      result.add(indentStr & "#else\n")
+      for elseBodyStmt in node.ifNotDefNode.elseBody:
+        result.add(cStmtToString(elseBodyStmt, indent))
+    result.add(indentStr & "#endif\n")
   of CskIfDef:
-    result = lineInfo & ind & "#ifdef " & node.ifDefNode.name & "\n"
-    for b in node.ifDefNode.body:
-      result.add(cStmtToString(b, indent))
+    result = lineInfo & indentStr & "#ifdef " & node.ifDefNode.name & "\n"
+    for bodyStmt in node.ifDefNode.body:
+      result.add(cStmtToString(bodyStmt, indent))
     if node.ifDefNode.elseBody.len > 0:
-      result.add(ind & "#else\n")
-      for b in node.ifDefNode.elseBody:
-        result.add(cStmtToString(b, indent))
-    result.add(ind & "#endif\n")
+      result.add(indentStr & "#else\n")
+      for elseBodyStmt in node.ifDefNode.elseBody:
+        result.add(cStmtToString(elseBodyStmt, indent))
+    result.add(indentStr & "#endif\n")
   of CskWhileStmt:
-    let w = node.whileStmtNode
-    result = lineInfo & ind & "while (" & cExprToString(w.condition, 0) & ") "
-    result.add("{\n" & cStmtToString(w.body, indent + 2) & ind & "}\n")
+    let whileStmt = node.whileStmtNode
+    result = lineInfo & indentStr & "while (" & cExprToString(whileStmt.condition, 0) & ") "
+    result.add("{\n" & cStmtToString(whileStmt.body, indent + 2) & indentStr & "}\n")
   of CskFunctionDecl:
-    let fn = node.functionDeclNode
-    let params =
-      fn.parameters.mapIt(cTypeToString(it.paramType) & " " & it.name).join(", ")
-    var mods = ""
-    if fn.isStatic:
-      mods.add("static ")
-    if fn.isExtern:
-      mods.add("extern ")
-    if fn.isInline:
-      mods.add("inline ")
+    let fnDecl = node.functionDeclNode
+    let paramsStr =
+      fnDecl.parameters.mapIt(cTypeToString(it.paramType) & " " & it.name).join(", ")
+    var modifiers = ""
+    if fnDecl.isStatic:
+      modifiers.add("static ")
+    if fnDecl.isExtern:
+      modifiers.add("extern ")
+    if fnDecl.isInline:
+      modifiers.add("inline ")
     result =
-      lineInfo & ind & mods & cTypeToString(fn.returnType) & " " & fn.name & "(" & params &
+      lineInfo & indentStr & modifiers & cTypeToString(fnDecl.returnType) & " " & fnDecl.name & "(" & paramsStr &
       ");\n"
   of CskFunctionDef:
-    let fn = node.functionDefNode
-    result = lineInfo & cStmtToString(fn.declaration, indent).replace(";\n", "")
+    let fnDef = node.functionDefNode
+    result = lineInfo & cStmtToString(fnDef.declaration, indent).replace(";\n", "")
     result.add(" ")
-    result.add(cStmtToString(fn.body, indent))
+    result.add(cStmtToString(fnDef.body, indent))
     result.add("\n")
   of CskVarDecl:
-    let v = node.varDeclNode
-    var mods = ""
-    if v.isStatic:
-      mods.add("static ")
-    if v.isExtern:
-      mods.add("extern ")
-    if v.isVolatile:
-      mods.add("volatile ")
-    if v.isConst:
-      mods.add("const ")
-    result = lineInfo & ind & mods & cTypeToString(v.varType) & " " & v.name
-    if v.initializer.isSome:
-      result.add(" = " & cExprToString(v.initializer.get(), 0))
+    let varDecl = node.varDeclNode
+    var modifiers = ""
+    if varDecl.isStatic:
+      modifiers.add("static ")
+    if varDecl.isExtern:
+      modifiers.add("extern ")
+    if varDecl.isVolatile:
+      modifiers.add("volatile ")
+    if varDecl.isConst:
+      modifiers.add("const ")
+    result = lineInfo & indentStr & modifiers & cTypeToString(varDecl.varType) & " " & varDecl.name
+    if varDecl.initializer.isSome:
+      result.add(" = " & cExprToString(varDecl.initializer.get(), 0))
     result.add(";\n")
   of CskBlockStmt:
-    result = ind & "{\n"
-    for stmt in node.blockStmtNode.statements:
-      result.add(cStmtToString(stmt, indent + 2))
-    result.add(ind & "}\n")
+    result = indentStr & "{\n"
+    for statement in node.blockStmtNode.statements:
+      result.add(cStmtToString(statement, indent + 2))
+    result.add(indentStr & "}\n")
   of CskExprStmt:
-    result = lineInfo & ind & cExprToString(node.exprStmtNode.expression, 0) & ";\n"
+    result = lineInfo & indentStr & cExprToString(node.exprStmtNode.expression, 0) & ";\n"
   of CskReturnStmt:
-    result = lineInfo & ind & "return"
+    result = lineInfo & indentStr & "return"
     if node.returnStmtNode.expression.isSome:
       result.add(" " & cExprToString(node.returnStmtNode.expression.get(), 0))
     result.add(";\n")
   of CskIfStmt:
-    let ifs = node.ifStmtNode
+    let ifStmt = node.ifStmtNode
     result = lineInfo
-    for i, branch in ifs.branches:
+    for i, branch in ifStmt.branches:
       if i == 0:
-        result.add(ind & "if (" & cExprToString(branch.condition, 0) & ") ")
+        result.add(indentStr & "if (" & cExprToString(branch.condition, 0) & ") ")
       else:
-        result.add(ind & "else if (" & cExprToString(branch.condition, 0) & ") ")
-      result.add("{\n" & cStmtToString(branch.body, indent + 2) & ind & "}\n")
-    if ifs.elseBranch.isSome:
-      result.add(ind & "else ")
-      result.add("{\n" & cStmtToString(ifs.elseBranch.get(), indent + 2) & ind & "}\n")
+        result.add(indentStr & "else if (" & cExprToString(branch.condition, 0) & ") ")
+      result.add("{\n" & cStmtToString(branch.body, indent + 2) & indentStr & "}\n")
+    if ifStmt.elseBranch.isSome:
+      result.add(indentStr & "else ")
+      result.add("{\n" & cStmtToString(ifStmt.elseBranch.get(), indent + 2) & indentStr & "}\n")
   of CskTypedef:
-    let td = node.typedefNode
+    let typedefNode = node.typedefNode
     result =
-      lineInfo & ind & "typedef " & cTypeToString(td.baseType) & " " & td.name & ";\n"
+      lineInfo & indentStr & "typedef " & cTypeToString(typedefNode.baseType) & " " & typedefNode.name & ";\n"
   of CskStructDef:
-    let sd = node.structDefNode
-    result = lineInfo & ind & "typedef struct " & sd.name & " {\n"
-    for m in sd.members:
-      result.add(ind & "  " & cTypeToString(m.paramType) & " " & m.name & ";\n")
-    result.add(ind & "} " & sd.name & ";\n")
+    let structDef = node.structDefNode
+    result = lineInfo & indentStr & "typedef struct " & structDef.name & " {\n"
+    for member in structDef.members:
+      result.add(indentStr & "  " & cTypeToString(member.paramType) & " " & member.name & ";\n")
+    result.add(indentStr & "} " & structDef.name & ";\n")
   of CskNop:
     result = ""
 
 proc cExprToString*(node: CExpr, indent: int = 0): string =
-  let ind = repeat(' ', indent)
+  let indentStr = repeat(' ', indent)
   case node.kind
   of CekAssignment:
-    let a = node.assignmentNode
-    result = ind & cExprToString(a.lhs, 0) & " = " & cExprToString(a.rhs, 0)
+    let assignment = node.assignmentNode
+    result = indentStr & cExprToString(assignment.lhs, 0) & " = " & cExprToString(assignment.rhs, 0)
   of CekBinaryExpr:
-    let b = node.binaryExprNode
+    let binaryExpr = node.binaryExprNode
     result =
-      ind & cExprToString(b.left, 0) & " " & tokenKindToCOperator(b.operator) & " " &
-      cExprToString(b.right, 0)
+      indentStr & cExprToString(binaryExpr.left, 0) & " " & tokenKindToCOperator(binaryExpr.operator) & " " &
+      cExprToString(binaryExpr.right, 0)
   of CekUnaryExpr:
-    let u = node.unaryExprNode
-    result = ind & tokenKindToCOperator(u.operator) & cExprToString(u.operand, 0)
+    let unaryExpr = node.unaryExprNode
+    result = indentStr & tokenKindToCOperator(unaryExpr.operator) & cExprToString(unaryExpr.operand, 0)
   of CekFunctionCall:
-    let f = node.functionCallNode
-    let args = f.arguments.mapIt(cExprToString(it, 0)).join(", ")
-    result = ind & cExprToString(f.callee, 0) & "(" & args & ")"
+    let functionCall = node.functionCallNode
+    let argsStr = functionCall.arguments.mapIt(cExprToString(it, 0)).join(", ")
+    result = indentStr & cExprToString(functionCall.callee, 0) & "(" & argsStr & ")"
   of CekIdentifier:
-    result = ind & node.identifierNode.name
+    result = indentStr & node.identifierNode.name
   of CekArrayAccess:
-    let a = node.arrayAccessNode
-    result = ind & cExprToString(a.array, 0) & "[" & cExprToString(a.index, 0) & "]"
+    let arrayAccess = node.arrayAccessNode
+    result = indentStr & cExprToString(arrayAccess.array, 0) & "[" & cExprToString(arrayAccess.index, 0) & "]"
   of CekGroupExpr:
-    result = ind & "(" & cExprToString(node.groupNode.expression, 0) & ")"
+    result = indentStr & "(" & cExprToString(node.groupNode.expression, 0) & ")"
   of CekAddressOf:
-    result = ind & "&" & cExprToString(node.addressOfNode.operand, 0)
+    result = indentStr & "&" & cExprToString(node.addressOfNode.operand, 0)
   of CekDereference:
-    result = ind & "*" & cExprToString(node.dereferenceNode.operand, 0)
+    result = indentStr & "*" & cExprToString(node.dereferenceNode.operand, 0)
   of CekIntLiteral:
-    result = ind & $node.intLiteralNode.value
+    result = indentStr & $node.intLiteralNode.value
   of CekUIntLiteral:
-    result = ind & $node.uintLiteralNode.value & "U"
+    result = indentStr & $node.uintLiteralNode.value & "U"
   of CekFloatLiteral:
-    result = ind & $node.floatLiteralNode.value
+    result = indentStr & $node.floatLiteralNode.value
   of CekStringLiteral:
-    result = ind & '"' & node.stringLiteralNode.value & '"'
+    result = indentStr & '"' & node.stringLiteralNode.value & '"'
   of CekCharLiteral:
-    result = ind & "'" & node.charLiteralNode.value & "'"
+    result = indentStr & "'" & node.charLiteralNode.value & "'"
   of CekBoolLiteral:
-    result = ind & (if node.boolLiteralNode.value: "1" else: "0")
+    result = indentStr & (if node.boolLiteralNode.value: "1" else: "0")
   of CekStructLiteral:
-    let sl = node.structLiteralNode
-    result = ind & "(" & sl.typeName & ")"
+    let structLiteral = node.structLiteralNode
+    result = indentStr & "(" & structLiteral.typeName & ")"
     result.add("{")
-    for i, m in sl.members:
+    for i, member in structLiteral.members:
       if i > 0:
         result.add(", ")
-      result.add("." & m.name & " = " & cExprToString(m.value, 0))
+      result.add("." & member.name & " = " & cExprToString(member.value, 0))
     result.add("}")
   of CekMemberAccess:
-    let ma = node.memberAccessNode
-    result = ind & cExprToString(ma.expr, 0) & "." & ma.member
+    let memberAccess = node.memberAccessNode
+    result = indentStr & cExprToString(memberAccess.expr, 0) & "." & memberAccess.member
   of CekArrowMemberAccess:
-    let ama = node.arrowMemberAccessNode
-    result = ind & cExprToString(ama.expr, 0) & "->" & ama.member
+    let arrowMemberAccess = node.arrowMemberAccessNode
+    result = indentStr & cExprToString(arrowMemberAccess.expr, 0) & "->" & arrowMemberAccess.member
   of CekNullLiteral:
-    result = ind & "NULL"
+    result = indentStr & "NULL"

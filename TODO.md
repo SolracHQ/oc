@@ -21,6 +21,9 @@
 - [x] **AST Construction**
   - [x] Add helper function to create AST variants to avoid uninitialized members
 
+- [x] **Fix Infinite recursion when resolving self-referential types**
+  - [x] Fix infinite recursion when resolving self-referential types (e.g., `struct Foo { next: *Foo }`)
+
 ## Medium Priority
 
 - [ ] **Core Language Features**
@@ -33,7 +36,7 @@
     - [ ] For loops
   - [ ] Design and implement generics via type erasure
   - [x] Reconsider function calling conventions
-  - [ ] Add optional parameters
+  - [x] Add optional parameters
   - [ ] Add implicit return variable
   - [ ] Add checker for every path on function to ensure that the function always returns or assigns to result
   - [ ] Consider about do-while statement
