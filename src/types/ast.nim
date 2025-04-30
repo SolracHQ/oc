@@ -42,6 +42,8 @@ type
     EkBoolLiteral
     EkNilLiteral
     EkStructLiteral
+    EkArrayAccess
+    EkArrayLiteral
 
   # Program
   ModuleStmt* = object
@@ -204,6 +206,13 @@ type
   BoolLiteralExpr* = object
     value*: bool
 
+  ArrayAccessExpr* = object
+    arrayExpr*: Expr
+    indexExpr*: Expr
+
+  ArrayLiteralExpr* = object
+    elements*: seq[Expr]
+
   # Expressions
   Expr* = ref object
     pos*: Position
@@ -229,3 +238,5 @@ type
     of EkBoolLiteral: boolLiteralExpr*: BoolLiteralExpr
     of EkNilLiteral: discard
     of EkStructLiteral: structLiteralExpr*: StructLiteralExpr
+    of EkArrayAccess: arrayAccessExpr*: ArrayAccessExpr
+    of EkArrayLiteral: arrayLiteralExpr*: ArrayLiteralExpr

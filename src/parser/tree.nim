@@ -182,6 +182,18 @@ proc treeRepr*(node: Expr, indent: int = 0): string =
     for m in sl.members:
       result.add indentStr & "  " & m.name & ":\n"
       result.add treeRepr(m.value, indent + 2)
+  of EkArrayAccess:
+    let aa = node.arrayAccessExpr
+    result.add indentStr & "arrayaccess:\n"
+    result.add indentStr & "  array:\n"
+    result.add treeRepr(aa.arrayExpr, indent + 2)
+    result.add indentStr & "  index:\n"
+    result.add treeRepr(aa.indexExpr, indent + 2)
+  of EkArrayLiteral:
+    let al = node.arrayLiteralExpr
+    result.add indentStr & "arrayliteral:\n"
+    for elem in al.elements:
+      result.add treeRepr(elem, indent + 1)
 
 proc printTree*(node: Stmt): string =
   result = treeRepr(node)

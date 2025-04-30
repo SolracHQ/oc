@@ -1,4 +1,16 @@
+// Include printf
+#[include(from="<stdio.h>", name="printf")]
+fun printf(format: CString, _: CVarArgs)
+
 pub struct String {
   ptr: *Char,
   len: Int,
+}
+
+pub fun len(s: String): Int {
+  return s.len
+}
+
+pub fun printString(s: String) {
+  printf(c"%*.s\n", s.len, s.ptr)
 }

@@ -1,0 +1,87 @@
+#[include(from="<stdio.h>", name="printf")]
+fun printf(format: CString, _: CVarArgs)
+
+// Define a struct with multiple fields
+struct MyStruct {
+  x: Int32,
+  y: Int32,
+  label: CString
+}
+
+// Print a MyStruct
+fun printMyStruct(s: MyStruct) {
+  printf(c"{x: %d, y: %d, label: %s}", s.x, s.y, s.label)
+}
+
+// Print an array of MyStruct
+fun printMyStructArray(arr: [MyStruct, 8]) {
+  printf(c"[")
+  var i = 0
+  while (i < 8) {
+    printMyStruct(arr[i])
+    if (i < 7) {
+      printf(c", ")
+    } else {}
+    i = i + 1
+  }
+  printf(c"]")
+}
+
+// Print a pointer to array of MyStruct
+fun printPtrMyStructArray(ptr: *[MyStruct, 8]) {
+  printMyStructArray(*ptr)
+}
+
+// Print a nested array: [*[MyStruct, 8], 2]
+fun printNested(arr: [*[MyStruct, 8], 2]) {
+  printf(c"[\n")
+  var i: Int32 = 0
+  while (i < 2) {
+    printf(c"  %d: ", i)
+    printPtrMyStructArray(arr[i])
+    printf(c"\n")
+    i = i + 1
+  }
+  printf(c"]\n")
+}
+
+#[entrypoint]
+fun example(): Int32 {
+
+  // Create two arrays of MyStruct
+  var arrA: [MyStruct, 8] = [
+    MyStruct{x: 1, y: 2, label: c"A0"},
+    MyStruct{x: 3, y: 4, label: c"A1"},
+    MyStruct{x: 5, y: 6, label: c"A2"},
+    MyStruct{x: 7, y: 8, label: c"A3"},
+    MyStruct{x: 9, y: 10, label: c"A4"},
+    MyStruct{x: 11, y: 12, label: c"A5"},
+    MyStruct{x: 13, y: 14, label: c"A6"},
+    MyStruct{x: 15, y: 16, label: c"A7"}
+  ]
+  var arrB: [MyStruct, 8] = [
+    MyStruct{x: 21, y: 22, label: c"B0"},
+    MyStruct{x: 23, y: 24, label: c"B1"},
+    MyStruct{x: 25, y: 26, label: c"B2"},
+    MyStruct{x: 27, y: 28, label: c"B3"},
+    MyStruct{x: 29, y: 30, label: c"B4"},
+    MyStruct{x: 31, y: 32, label: c"B5"},
+    MyStruct{x: 33, y: 34, label: c"B6"},
+    MyStruct{x: 35, y: 36, label: c"B7"}
+  ]
+
+  // Create an array of pointers to arrays of MyStruct
+  var nested: [*[MyStruct, 8], 2] = [&arrA, &arrB]
+
+  printf(c"\n== Nested array of pointer to array of MyStruct ==\n")
+  printNested(nested)
+
+  // Mutate a field in the nested structure
+  (*nested[1])[3].x = 1234
+  (*nested[0])[0].label = c"ChangedA0"
+
+  printf(c"\n== After mutation ==\n")
+  printNested(nested)
+
+  return 0
+}

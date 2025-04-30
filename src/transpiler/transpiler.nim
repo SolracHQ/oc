@@ -26,6 +26,8 @@ proc transpileVariable(
   transpiler: Transpiler, scope: Scope, variable: Symbol, declarationOnly: bool = false
 ): Option[CStmt]
 
+proc transpileStmt(transpiler: Transpiler, scope: Scope, stmt: Stmt): Option[CStmt]
+
 proc makePointerType(base: CType): CType =
   result = CType(kind: CkPointer, ctype: base)
 
@@ -132,195 +134,376 @@ proc transpileStructLiteral(
     )
   )
 
+proc transpileAssignmentExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CExpr] =
+  let lhs = transpileExpr(transpiler, scope, expr.assignmentExpr.left)
+  let rhsC = transpileExpr(transpiler, scope, expr.assignmentExpr.value)
+  if rhsC.isNone or lhs.isNone:
+    return none(CExpr)
+  result = some(
+    CExpr(
+      kind: CekAssignment,
+      pos: expr.pos,
+      assignmentNode:
+        ast_c.AssignmentNode(lhs: lhs.get(), rhs: rhsC.get(), operator: TkEqual),
+    )
+  )
+
+proc transpileBinaryOpExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CExpr] =
+  let leftC = transpileExpr(transpiler, scope, expr.binaryOpExpr.left)
+  let rightC = transpileExpr(transpiler, scope, expr.binaryOpExpr.right)
+  if leftC.isNone or rightC.isNone:
+    return none(CExpr)
+  result = some(
+    CExpr(
+      kind: CekBinaryExpr,
+      pos: expr.pos,
+      binaryExprNode: ast_c.BinaryExprNode(
+        left: leftC.get(), operator: expr.binaryOpExpr.operator, right: rightC.get()
+      ),
+    )
+  )
+
+proc transpileUnaryOpExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CExpr] =
+  let operandC = transpileExpr(transpiler, scope, expr.unaryOpExpr.operand)
+  if operandC.isNone:
+    return none(CExpr)
+  result = some(
+    CExpr(
+      kind: CekUnaryExpr,
+      pos: expr.pos,
+      unaryExprNode: ast_c.UnaryExprNode(
+        operator: expr.unaryOpExpr.operator, operand: operandC.get()
+      ),
+    )
+  )
+
+proc transpileMemberAccessExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CExpr] =
+  let objC = transpileExpr(transpiler, scope, expr.memberAccessExpr.obj)
+  if objC.isNone:
+    return none(CExpr)
+  let objType = expr.memberAccessExpr.obj.exprType
+  if objType.kind == TkPointer:
+    result = some(
+      CExpr(
+        kind: CekArrowMemberAccess,
+        pos: expr.pos,
+        arrowMemberAccessNode: ast_c.ArrowMemberAccessNode(
+          expr: objC.get(), member: expr.memberAccessExpr.member
+        ),
+      )
+    )
+  else:
+    result = some(
+      CExpr(
+        kind: CekMemberAccess,
+        pos: expr.pos,
+        memberAccessNode: ast_c.MemberAccessNode(
+          expr: objC.get(), member: expr.memberAccessExpr.member
+        ),
+      )
+    )
+
+proc transpileFunctionCallExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CExpr] =
+  let calleeC = transpileExpr(transpiler, scope, expr.functionCallExpr.callee)
+  if calleeC.isNone:
+    return none(CExpr)
+  var argsC: seq[CExpr] = @[]
+  for arg in expr.functionCallExpr.arguments:
+    let argC = transpileExpr(transpiler, scope, arg)
+    if argC.isNone:
+      return none(CExpr)
+    argsC.add(argC.get())
+  result = some(
+    CExpr(
+      kind: CekFunctionCall,
+      pos: expr.pos,
+      functionCallNode:
+        ast_c.FunctionCallNode(callee: calleeC.get(), arguments: argsC),
+    )
+  )
+
+proc transpileIdentifierExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CExpr] =
+  let symOpt = scope.findSymbol(expr.identifierExpr.name, expr.pos, AnySymbol)
+  if symOpt.isNone:
+    transpilerError(
+      transpiler, expr.pos, "Unknown identifier: " & expr.identifierExpr.name
+    )
+    return none(CExpr)
+  result = some(
+    CExpr(
+      kind: CekIdentifier,
+      pos: expr.pos,
+      identifierNode: ast_c.IdentifierNode(name: symOpt.get().canonicalName),
+    )
+  )
+
+proc transpileGroupExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CExpr] =
+  let exprC = transpileExpr(transpiler, scope, expr.groupExpr.expression)
+  if exprC.isSome:
+    result = some(
+      CExpr(
+        kind: CekGroupExpr,
+        pos: expr.pos,
+        groupNode: ast_c.GroupNode(expression: exprC.get()),
+      )
+    )
+
+proc transpileAddressOfExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CExpr] =
+  let operandC = transpileExpr(transpiler, scope, expr.addressOfExpr.operand)
+  if operandC.isNone:
+    return none(CExpr)
+  result = some(
+    CExpr(
+      kind: CekAddressOf,
+      pos: expr.pos,
+      addressOfNode: ast_c.AddressOfNode(operand: operandC.get()),
+    )
+  )
+
+proc transpileDerefExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CExpr] =
+  let operandC = transpileExpr(transpiler, scope, expr.derefExpr.operand)
+  if operandC.isNone:
+    return none(CExpr)
+  result = some(
+    CExpr(
+      kind: CekDereference,
+      pos: expr.pos,
+      dereferenceNode: ast_c.DereferenceNode(operand: operandC.get()),
+    )
+  )
+
+proc transpileIntLiteralExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CExpr] =
+  result = some(
+    CExpr(
+      kind: CekIntLiteral,
+      pos: expr.pos,
+      intLiteralNode: ast_c.IntLiteralNode(value: expr.intLiteralExpr.value),
+    )
+  )
+
+proc transpileUIntLiteralExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CExpr] =
+  result = some(
+    CExpr(
+      kind: CekUIntLiteral,
+      pos: expr.pos,
+      uintLiteralNode: ast_c.UIntLiteralNode(value: expr.uintLiteralExpr.value),
+    )
+  )
+
+proc transpileFloatLiteralExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CExpr] =
+  result = some(
+    CExpr(
+      kind: CekFloatLiteral,
+      pos: expr.pos,
+      floatLiteralNode: ast_c.FloatLiteralNode(value: expr.floatLiteralExpr.value),
+    )
+  )
+
+proc transpileStringLiteralExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CExpr] =
+  discard # TODO: handle string literals
+
+proc transpileCStringLiteralExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CExpr] =
+  result = some(
+    CExpr(
+      kind: CekStringLiteral,
+      pos: expr.pos,
+      stringLiteralNode: ast_c.StringLiteralNode(value: expr.cStringLiteralExpr.value),
+    )
+  )
+
+proc transpileCharLiteralExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CExpr] =
+  result = some(
+    CExpr(
+      kind: CekCharLiteral,
+      pos: expr.pos,
+      charLiteralNode: ast_c.CharLiteralNode(value: expr.charLiteralExpr.value),
+    )
+  )
+
+proc transpileBoolLiteralExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CExpr] =
+  result = some(
+    CExpr(
+      kind: CekBoolLiteral,
+      pos: expr.pos,
+      boolLiteralNode: ast_c.BoolLiteralNode(value: expr.boolLiteralExpr.value),
+    )
+  )
+
+proc transpileNilLiteralExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CExpr] =
+  result = some(CExpr(kind: CekNullLiteral, pos: expr.pos))
+
+proc transpileStructLiteralExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CExpr] =
+  result = transpileStructLiteral(transpiler, scope, expr)
+
+proc transpileArrayAccessExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CExpr] =
+  let arrayC = transpileExpr(transpiler, scope, expr.arrayAccessExpr.arrayExpr)
+  let indexC = transpileExpr(transpiler, scope, expr.arrayAccessExpr.indexExpr)
+  if arrayC.isNone or indexC.isNone:
+    return none(CExpr)
+  result = some(
+    CExpr(
+      kind: CekArrayAccess,
+      pos: expr.pos,
+      arrayAccessNode: ast_c.ArrayAccessNode(
+        array: arrayC.get(),
+        index: indexC.get()
+      )
+    )
+  )
+
+proc transpileArrayLiteralExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CExpr] =
+  var elementsC: seq[CExpr] = @[]
+  for el in expr.arrayLiteralExpr.elements:
+    let elC = transpileExpr(transpiler, scope, el)
+    if elC.isNone:
+      return none(CExpr)
+    elementsC.add(elC.get())
+  result = some(
+    CExpr(
+      kind: CekArrayLiteral,
+      pos: expr.pos,
+      arrayLiteralNode: ast_c.ArrayLiteralNode(elements: elementsC)
+    )
+  )
+
 proc transpileExpr(transpiler: Transpiler, scope: Scope, expr: Expr): Option[CExpr] =
   case expr.kind
   of EkAssignment:
-    let lhs = transpileExpr(transpiler, scope, expr.assignmentExpr.left)
-    let rhsC = transpileExpr(transpiler, scope, expr.assignmentExpr.value)
-    if rhsC.isNone or lhs.isNone:
-      return none(CExpr)
-    result = some(
-      CExpr(
-        kind: CekAssignment,
-        pos: expr.pos,
-        assignmentNode:
-          ast_c.AssignmentNode(lhs: lhs.get(), rhs: rhsC.get(), operator: TkEqual),
-      )
-    )
-  of EkLogicalExpr, EkEqualityExpr, EkComparisonExpr, EkAdditiveExpr,
-      EkMultiplicativeExpr:
-    let leftC = transpileExpr(transpiler, scope, expr.binaryOpExpr.left)
-    let rightC = transpileExpr(transpiler, scope, expr.binaryOpExpr.right)
-    if leftC.isNone or rightC.isNone:
-      return none(CExpr)
-    result = some(
-      CExpr(
-        kind: CekBinaryExpr,
-        pos: expr.pos,
-        binaryExprNode: ast_c.BinaryExprNode(
-          left: leftC.get(), operator: expr.binaryOpExpr.operator, right: rightC.get()
-        ),
-      )
-    )
+    result = transpileAssignmentExpr(transpiler, scope, expr)
+  of EkLogicalExpr, EkEqualityExpr, EkComparisonExpr, EkAdditiveExpr, EkMultiplicativeExpr:
+    result = transpileBinaryOpExpr(transpiler, scope, expr)
   of EkUnaryExpr:
-    let operandC = transpileExpr(transpiler, scope, expr.unaryOpExpr.operand)
-    if operandC.isNone:
-      return none(CExpr)
-    result = some(
-      CExpr(
-        kind: CekUnaryExpr,
-        pos: expr.pos,
-        unaryExprNode: ast_c.UnaryExprNode(
-          operator: expr.unaryOpExpr.operator, operand: operandC.get()
-        ),
-      )
-    )
+    result = transpileUnaryOpExpr(transpiler, scope, expr)
   of EkMemberAccess:
-    let objC = transpileExpr(transpiler, scope, expr.memberAccessExpr.obj)
-    if objC.isNone:
-      return none(CExpr)
-    # Determine if the object is a pointer type
-    let objType = expr.memberAccessExpr.obj.exprType
-    if objType.kind == TkPointer:
-      # Use arrow operator
-      result = some(
-        CExpr(
-          kind: CekArrowMemberAccess,
-          pos: expr.pos,
-          arrowMemberAccessNode: ast_c.ArrowMemberAccessNode(
-            expr: objC.get(), member: expr.memberAccessExpr.member
-          ),
-        )
-      )
-    else:
-      # Use dot operator
-      result = some(
-        CExpr(
-          kind: CekMemberAccess,
-          pos: expr.pos,
-          memberAccessNode: ast_c.MemberAccessNode(
-            expr: objC.get(), member: expr.memberAccessExpr.member
-          ),
-        )
-      )
+    result = transpileMemberAccessExpr(transpiler, scope, expr)
   of EkFunctionCall:
-    let calleeC = transpileExpr(transpiler, scope, expr.functionCallExpr.callee)
-    if calleeC.isNone:
-      return none(CExpr)
-    var argsC: seq[CExpr] = @[]
-    for arg in expr.functionCallExpr.arguments:
-      let argC = transpileExpr(transpiler, scope, arg)
-      if argC.isNone:
-        return none(CExpr)
-      argsC.add(argC.get())
-    result = some(
-      CExpr(
-        kind: CekFunctionCall,
-        pos: expr.pos,
-        functionCallNode:
-          ast_c.FunctionCallNode(callee: calleeC.get(), arguments: argsC),
-      )
-    )
+    result = transpileFunctionCallExpr(transpiler, scope, expr)
   of EkIdentifier:
-    let symOpt = scope.findSymbol(expr.identifierExpr.name, expr.pos, AnySymbol)
-    if symOpt.isNone:
-      transpilerError(
-        transpiler, expr.pos, "Unknown identifier: " & expr.identifierExpr.name
-      )
-      return none(CExpr)
+    result = transpileIdentifierExpr(transpiler, scope, expr)
+  of EkGroupExpr:
+    result = transpileGroupExpr(transpiler, scope, expr)
+  of EkAddressOfExpr:
+    result = transpileAddressOfExpr(transpiler, scope, expr)
+  of EkDerefExpr:
+    result = transpileDerefExpr(transpiler, scope, expr)
+  of EkIntLiteral:
+    result = transpileIntLiteralExpr(transpiler, scope, expr)
+  of EkUIntLiteral:
+    result = transpileUIntLiteralExpr(transpiler, scope, expr)
+  of EkFloatLiteral:
+    result = transpileFloatLiteralExpr(transpiler, scope, expr)
+  of EkStringLiteral:
+    result = transpileStringLiteralExpr(transpiler, scope, expr)
+  of EkCStringLiteral:
+    result = transpileCStringLiteralExpr(transpiler, scope, expr)
+  of EkCharLiteral:
+    result = transpileCharLiteralExpr(transpiler, scope, expr)
+  of EkBoolLiteral:
+    result = transpileBoolLiteralExpr(transpiler, scope, expr)
+  of EkNilLiteral:
+    result = transpileNilLiteralExpr(transpiler, scope, expr)
+  of EkStructLiteral:
+    result = transpileStructLiteralExpr(transpiler, scope, expr)
+  of EkArrayAccess:
+    result = transpileArrayAccessExpr(transpiler, scope, expr)
+  of EkArrayLiteral:
+    result = transpileArrayLiteralExpr(transpiler, scope, expr)
+
+# --- Sub-functions for statement transpilation ---
+
+proc transpileBlockStmt(transpiler: Transpiler, scope: Scope, stmt: Stmt): Option[CStmt] =
+  var stmts: seq[CStmt] = @[]
+  let blockScope = scope.children[stmt.blockStmt.blockId]
+  for s in stmt.blockStmt.statements:
+    let stmtC = transpileStmt(transpiler, blockScope, s)
+    if stmtC.isSome:
+      stmts.add(stmtC.get())
+  result = some(
+    CStmt(
+      kind: CskBlockStmt,
+      pos: stmt.pos,
+      comments: stmt.comments,
+      blockStmtNode: ast_c.BlockStmtNode(statements: stmts),
+    )
+  )
+
+proc transpileExprStmt(transpiler: Transpiler, scope: Scope, stmt: Stmt): Option[CStmt] =
+  let exprC = transpileExpr(transpiler, scope, stmt.exprStmt.expression)
+  if exprC.isSome:
     result = some(
-      CExpr(
-        kind: CekIdentifier,
-        pos: expr.pos,
-        identifierNode: ast_c.IdentifierNode(name: symOpt.get().canonicalName),
+      CStmt(
+        kind: CskExprStmt,
+        pos: stmt.pos,
+        comments: stmt.comments,
+        exprStmtNode: ast_c.ExprStmtNode(expression: exprC.get()),
       )
     )
-  of EkGroupExpr:
-    let exprC = transpileExpr(transpiler, scope, expr.groupExpr.expression)
+
+proc transpileReturnStmt(transpiler: Transpiler, scope: Scope, stmt: Stmt): Option[CStmt] =
+  if stmt.returnStmt.expression.isSome:
+    let exprC = transpileExpr(transpiler, scope, stmt.returnStmt.expression.get())
     if exprC.isSome:
       result = some(
-        CExpr(
-          kind: CekGroupExpr,
-          pos: expr.pos,
-          groupNode: ast_c.GroupNode(expression: exprC.get()),
+        CStmt(
+          kind: CskReturnStmt,
+          pos: stmt.pos,
+          comments: stmt.comments,
+          returnStmtNode: ast_c.ReturnStmtNode(expression: some(exprC.get())),
         )
       )
-  of EkAddressOfExpr:
-    let operandC = transpileExpr(transpiler, scope, expr.addressOfExpr.operand)
-    if operandC.isNone:
-      return none(CExpr)
+  else:
     result = some(
-      CExpr(
-        kind: CekAddressOf,
-        pos: expr.pos,
-        addressOfNode: ast_c.AddressOfNode(operand: operandC.get()),
+      CStmt(
+        kind: CskReturnStmt,
+        pos: stmt.pos,
+        comments: stmt.comments,
+        returnStmtNode: ast_c.ReturnStmtNode(expression: none(CExpr)),
       )
     )
-  of EkDerefExpr:
-    let operandC = transpileExpr(transpiler, scope, expr.derefExpr.operand)
-    if operandC.isNone:
-      return none(CExpr)
-    result = some(
-      CExpr(
-        kind: CekDereference,
-        pos: expr.pos,
-        dereferenceNode: ast_c.DereferenceNode(operand: operandC.get()),
-      )
+
+proc transpileIfStmt(transpiler: Transpiler, scope: Scope, stmt: Stmt): Option[CStmt] =
+  var cBranches: seq[ast_c.IfBranchNode] = @[]
+  for branch in stmt.ifStmt.branches:
+    let branchScope = scope.children[branch.scopeId]
+    let condC = transpileExpr(transpiler, branchScope, branch.condition)
+    let bodyC = transpileStmt(transpiler, branchScope, branch.body)
+    if condC.isNone or bodyC.isNone:
+      return none(CStmt)
+    cBranches.add(ast_c.IfBranchNode(condition: condC.get(), body: bodyC.get()))
+  var cElse: Option[CStmt] = none(CStmt)
+  if stmt.ifStmt.elseBranch.isSome:
+    let elseB = stmt.ifStmt.elseBranch.get()
+    let elseScope = scope.children[elseB.scopeId]
+    let elseBodyC = transpileStmt(transpiler, elseScope, elseB.body)
+    if elseBodyC.isNone:
+      return none(CStmt)
+    cElse = some(elseBodyC.get())
+  result = some(
+    CStmt(
+      kind: CskIfStmt,
+      pos: stmt.pos,
+      comments: stmt.comments,
+      ifStmtNode: ast_c.IfStmtNode(branches: cBranches, elseBranch: cElse),
     )
-  of EkIntLiteral:
-    result = some(
-      CExpr(
-        kind: CekIntLiteral,
-        pos: expr.pos,
-        intLiteralNode: ast_c.IntLiteralNode(value: expr.intLiteralExpr.value),
-      )
+  )
+
+proc transpileWhileStmt(transpiler: Transpiler, scope: Scope, stmt: Stmt): Option[CStmt] =
+  let whileStmt = stmt.whileStmt
+  let whileScope = scope.children[whileStmt.scopeId]
+  let condC = transpileExpr(transpiler, whileScope, whileStmt.condition)
+  let bodyC = transpileStmt(transpiler, whileScope, whileStmt.body)
+  if condC.isNone or bodyC.isNone:
+    return none(CStmt)
+  result = some(
+    CStmt(
+      kind: CskWhileStmt,
+      pos: stmt.pos,
+      comments: stmt.comments,
+      whileStmtNode: ast_c.WhileStmtNode(condition: condC.get(), body: bodyC.get()),
     )
-  of EkUIntLiteral:
-    result = some(
-      CExpr(
-        kind: CekUIntLiteral,
-        pos: expr.pos,
-        uintLiteralNode: ast_c.UIntLiteralNode(value: expr.uintLiteralExpr.value),
-      )
-    )
-  of EkFloatLiteral:
-    result = some(
-      CExpr(
-        kind: CekFloatLiteral,
-        pos: expr.pos,
-        floatLiteralNode: ast_c.FloatLiteralNode(value: expr.floatLiteralExpr.value),
-      )
-    )
-  of EkStringLiteral:
-    discard # TODO: handle string literals
-  of EkCStringLiteral:
-    result = some(
-      CExpr(
-        kind: CekStringLiteral,
-        pos: expr.pos,
-        stringLiteralNode: ast_c.StringLiteralNode(value: expr.cStringLiteralExpr.value),
-      )
-    )
-  of EkCharLiteral:
-    result = some(
-      CExpr(
-        kind: CekCharLiteral,
-        pos: expr.pos,
-        charLiteralNode: ast_c.CharLiteralNode(value: expr.charLiteralExpr.value),
-      )
-    )
-  of EkBoolLiteral:
-    result = some(
-      CExpr(
-        kind: CekBoolLiteral,
-        pos: expr.pos,
-        boolLiteralNode: ast_c.BoolLiteralNode(value: expr.boolLiteralExpr.value),
-      )
-    )
-  of EkNilLiteral:
-    result = some(CExpr(kind: CekNullLiteral, pos: expr.pos))
-  of EkStructLiteral:
-    result = transpileStructLiteral(transpiler, scope, expr)
+  )
+
+# --- Main statement dispatcher ---
 
 proc transpileStmt(transpiler: Transpiler, scope: Scope, stmt: Stmt): Option[CStmt] =
   case stmt.kind
@@ -337,92 +520,15 @@ proc transpileStmt(transpiler: Transpiler, scope: Scope, stmt: Stmt): Option[CSt
   of SkFunDecl:
     discard # all the functions should be handled at module level
   of SkBlockStmt:
-    var stmts: seq[CStmt] = @[]
-    let blockScope = scope.children[stmt.blockStmt.blockId]
-    for s in stmt.blockStmt.statements:
-      let stmtC = transpileStmt(transpiler, blockScope, s)
-      if stmtC.isSome:
-        stmts.add(stmtC.get())
-    result = some(
-      CStmt(
-        kind: CskBlockStmt,
-        pos: stmt.pos,
-        comments: stmt.comments,
-        blockStmtNode: ast_c.BlockStmtNode(statements: stmts),
-      )
-    )
+    result = transpileBlockStmt(transpiler, scope, stmt)
   of SkExprStmt:
-    let exprC = transpileExpr(transpiler, scope, stmt.exprStmt.expression)
-    if exprC.isSome:
-      result = some(
-        CStmt(
-          kind: CskExprStmt,
-          pos: stmt.pos,
-          comments: stmt.comments,
-          exprStmtNode: ast_c.ExprStmtNode(expression: exprC.get()),
-        )
-      )
+    result = transpileExprStmt(transpiler, scope, stmt)
   of SkReturnStmt:
-    if stmt.returnStmt.expression.isSome:
-      let exprC = transpileExpr(transpiler, scope, stmt.returnStmt.expression.get())
-      if exprC.isSome:
-        result = some(
-          CStmt(
-            kind: CskReturnStmt,
-            pos: stmt.pos,
-            comments: stmt.comments,
-            returnStmtNode: ast_c.ReturnStmtNode(expression: some(exprC.get())),
-          )
-        )
-    else:
-      result = some(
-        CStmt(
-          kind: CskReturnStmt,
-          pos: stmt.pos,
-          comments: stmt.comments,
-          returnStmtNode: ast_c.ReturnStmtNode(expression: none(CExpr)),
-        )
-      )
+    result = transpileReturnStmt(transpiler, scope, stmt)
   of SkIfStmt:
-    var cBranches: seq[ast_c.IfBranchNode] = @[]
-    for branch in stmt.ifStmt.branches:
-      let branchScope = scope.children[branch.scopeId]
-      let condC = transpileExpr(transpiler, branchScope, branch.condition)
-      let bodyC = transpileStmt(transpiler, branchScope, branch.body)
-      if condC.isNone or bodyC.isNone:
-        return none(CStmt)
-      cBranches.add(ast_c.IfBranchNode(condition: condC.get(), body: bodyC.get()))
-    var cElse: Option[CStmt] = none(CStmt)
-    if stmt.ifStmt.elseBranch.isSome:
-      let elseB = stmt.ifStmt.elseBranch.get()
-      let elseScope = scope.children[elseB.scopeId]
-      let elseBodyC = transpileStmt(transpiler, elseScope, elseB.body)
-      if elseBodyC.isNone:
-        return none(CStmt)
-      cElse = some(elseBodyC.get())
-    result = some(
-      CStmt(
-        kind: CskIfStmt,
-        pos: stmt.pos,
-        comments: stmt.comments,
-        ifStmtNode: ast_c.IfStmtNode(branches: cBranches, elseBranch: cElse),
-      )
-    )
+    result = transpileIfStmt(transpiler, scope, stmt)
   of SkWhileStmt:
-    let whileStmt = stmt.whileStmt
-    let whileScope = scope.children[whileStmt.scopeId]
-    let condC = transpileExpr(transpiler, whileScope, whileStmt.condition)
-    let bodyC = transpileStmt(transpiler, whileScope, whileStmt.body)
-    if condC.isNone or bodyC.isNone:
-      return none(CStmt)
-    result = some(
-      CStmt(
-        kind: CskWhileStmt,
-        pos: stmt.pos,
-        comments: stmt.comments,
-        whileStmtNode: ast_c.WhileStmtNode(condition: condC.get(), body: bodyC.get()),
-      )
-    )
+    result = transpileWhileStmt(transpiler, scope, stmt)
   of SkNop:
     return none(CStmt)
   of SkStructDecl:

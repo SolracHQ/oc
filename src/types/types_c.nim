@@ -6,11 +6,9 @@ type
   CTypeKind* = enum
     CkPrimitive
     CkStruct
-    CkUnion
-    CkEnum
-    CkTypedef
     CkPointer
     CkConstPointer
+    CkArray
 
   CPrimitive* = enum
     Int8T
@@ -37,16 +35,20 @@ type
     name*: string
     members*: Table[string, CStructMember]
 
+  CArrayType* = object
+    ctype*: CType
+    size*: int
+
   CType* = ref object
     case kind*: CTypeKind
     of CkPrimitive:
       primitive*: CPrimitive
     of CkStruct:
       structType*: CStructType
-    of CkUnion, CkEnum, CkTypedef:
-      discard # TODO
     of CkPointer, CkConstPointer:
       ctype*: CType
+    of CkArray:
+      arrayType*: CArrayType
 
 proc `==`*(a, b: CType): bool =
   ## Compares two CType objects for equality
@@ -72,13 +74,18 @@ proc `==`*(a, b: CType): bool =
       elif am.ctype != bm.ctype:
         return false
     result = true
-  of CkUnion, CkEnum, CkTypedef:
-    result = true # To be implemented when these types are fully defined
   of CkPointer, CkConstPointer:
     if a.ctype.isNil or b.ctype.isNil:
       result = a.ctype.isNil and b.ctype.isNil
     else:
       result = a.ctype == b.ctype
+  of CkArray:
+    if a.arrayType.size != b.arrayType.size:
+      return false
+    if a.arrayType.ctype.isNil or b.arrayType.ctype.isNil:
+      result = a.arrayType.ctype.isNil and b.arrayType.ctype.isNil
+    else:
+      result = a.arrayType.ctype == b.arrayType.ctype
 
 proc `$`*(t: CType): string =
   ## Returns a string representation of a CType
@@ -91,12 +98,6 @@ proc `$`*(t: CType): string =
       result.add(m.name & ": " & (if m.ctype.isNil: "nil" else: $m.ctype))
       result.add(", ")
     result.add("}")
-  of CkUnion:
-    result = "union" # To be expanded
-  of CkEnum:
-    result = "enum" # To be expanded
-  of CkTypedef:
-    result = "typedef" # To be expanded
   of CkPointer:
     if t.ctype.isNil:
       result = "pointer(nil)"
@@ -107,60 +108,80 @@ proc `$`*(t: CType): string =
       result = "const pointer(nil)"
     else:
       result = "const pointer(" & $t.ctype & ")"
+  of CkArray:
+    if t.arrayType.ctype.isNil:
+      result = "array(nil, " & $t.arrayType.size & ")"
+    else:
+      result = "array(" & $t.arrayType.ctype & ", " & $t.arrayType.size & ")"
 
-proc getCString*(t: CType): string =
-  ## Returns the C string representation of a CType
+proc getCString*(t: CType, varName: string = "", needParens: bool = false): string =
+  ## Returns the C string representation of a CType, optionally with a variable name
   case t.kind
   of CkPrimitive:
-    case t.primitive
-    of Int8T:
-      result = "int8_t"
-    of Int16T:
-      result = "int16_t"
-    of Int32T:
-      result = "int32_t"
-    of Int64T:
-      result = "int64_t"
-    of UInt8T:
-      result = "uint8_t"
-    of UInt16T:
-      result = "uint16_t"
-    of UInt32T:
-      result = "uint32_t"
-    of UInt64T:
-      result = "uint64_t"
-    of FloatT:
-      result = "float"
-    of DoubleT:
-      result = "double"
-    of BoolT:
-      result = "_Bool"
-    of CharT:
-      result = "char"
-    of VoidT:
-      result = "void"
-    of CharPtrT:
-      result = "char*"
-    of VarArgsT:
-      result = "..."
+    let baseType =
+      case t.primitive
+      of Int8T: "int8_t"
+      of Int16T: "int16_t"
+      of Int32T: "int32_t"
+      of Int64T: "int64_t"
+      of UInt8T: "uint8_t"
+      of UInt16T: "uint16_t"
+      of UInt32T: "uint32_t"
+      of UInt64T: "uint64_t"
+      of FloatT: "float"
+      of DoubleT: "double"
+      of BoolT: "_Bool"
+      of CharT: "char"
+      of VoidT: "void"
+      of CharPtrT: "char*"
+      of VarArgsT: "..."
+    if varName.len > 0:
+      result = baseType & " " & varName
+    else:
+      result = baseType
   of CkStruct:
-    result = "struct " & t.structType.name
-  of CkUnion:
-    result = "union" # To be expanded
-  of CkEnum:
-    result = "enum" # To be expanded
-  of CkTypedef:
-    result = "typedef" # To be expanded
+    let baseType = "struct " & t.structType.name
+    if varName.len > 0:
+      result = baseType & " " & varName
+    else:
+      result = baseType
   of CkPointer:
-    if t.ctype.isNil:
-      result = "void*"
-    else:
-      result = getCString(t.ctype) & "*"
+    let subNeedsParens = t.ctype.kind in {CkArray, CkPointer, CkConstPointer}
+    let innerVar =
+      if varName.len > 0:
+        if subNeedsParens:
+          "(" & "*" & varName & ")"
+        else:
+          "*" & varName
+      else:
+        "*"
+    result = getCString(t.ctype, innerVar)
   of CkConstPointer:
-    if t.ctype.isNil:
-      result = "const void*"
-    else:
-      result = getCString(t.ctype) & " const*"
+    let subNeedsParens = t.ctype.kind in {CkArray, CkPointer, CkConstPointer}
+    let innerVar =
+      if varName.len > 0:
+        if subNeedsParens:
+          "(" & "const*" & varName & ")"
+        else:
+          "const*" & varName
+      else:
+        "const*"
+    result = getCString(t.ctype, innerVar)
+  of CkArray:
+    let innerVar =
+      if varName.len > 0:
+        varName & "[" & $t.arrayType.size & "]"
+      else:
+        "[" & $t.arrayType.size & "]"
+    let needsParens =
+      varName.len > 0 and (varName.contains('*') or varName.contains(')'))
+    result = getCString(
+      t.arrayType.ctype,
+      if needsParens:
+        "(" & innerVar & ")"
+      else:
+        innerVar,
+    )
 
 proc toCType*(t: Type, topLevel: bool = true): Option[CType] =
   ## Converts a Type to a CType
@@ -239,3 +260,10 @@ proc toCType*(t: Type, topLevel: bool = true): Option[CType] =
         return none(CType)
       cstruct.members[name] = CStructMember(name: m.name, ctype: ctypeOpt.get())
     result = some(CType(kind: CkStruct, structType: cstruct))
+  of TkArray:
+    let elemCTypeOpt = toCType(t.arrayType.typ, false)
+    if elemCTypeOpt.isNone:
+      return none(CType)
+    let elemCType = elemCTypeOpt.get()
+    let arrType = CArrayType(ctype: elemCType, size: t.arrayType.size)
+    result = some(CType(kind: CkArray, arrayType: arrType))

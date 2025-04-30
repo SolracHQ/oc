@@ -7,9 +7,9 @@ import std/options
 import std/sets
 import std/sequtils
 
-proc cTypeToString(t: CType): string =
+proc cTypeToString(t: CType, name: string = ""): string =
   ## Helper to print C types
-  getCString(t)
+  getCString(t, name)
 
 proc tokenKindToCOperator(kind: TokenKind): string =
   case kind
@@ -99,7 +99,7 @@ proc cStmtToString*(node: CStmt, indent: int = 0): string =
   of CskFunctionDecl:
     let fnDecl = node.functionDeclNode
     let paramsStr =
-      fnDecl.parameters.mapIt(cTypeToString(it.paramType) & " " & it.name).join(", ")
+      fnDecl.parameters.mapIt(cTypeToString(it.paramType, it.name)).join(", ")
     var modifiers = ""
     if fnDecl.isStatic:
       modifiers.add("static ")
@@ -127,7 +127,7 @@ proc cStmtToString*(node: CStmt, indent: int = 0): string =
       modifiers.add("volatile ")
     if varDecl.isConst:
       modifiers.add("const ")
-    result = lineInfo & indentStr & modifiers & cTypeToString(varDecl.varType) & " " & varDecl.name
+    result = lineInfo & indentStr & modifiers & cTypeToString(varDecl.varType, varDecl.name)
     if varDecl.initializer.isSome:
       result.add(" = " & cExprToString(varDecl.initializer.get(), 0))
     result.add(";\n")
@@ -158,7 +158,7 @@ proc cStmtToString*(node: CStmt, indent: int = 0): string =
   of CskTypedef:
     let typedefNode = node.typedefNode
     result =
-      lineInfo & indentStr & "typedef " & cTypeToString(typedefNode.baseType) & " " & typedefNode.name & ";\n"
+      lineInfo & indentStr & "typedef " & cTypeToString(typedefNode.baseType, typedefNode.name) & ";\n"
   of CskStructDef:
     let structDef = node.structDefNode
     result = lineInfo & indentStr & "typedef struct " & structDef.name & " {\n"
@@ -224,5 +224,13 @@ proc cExprToString*(node: CExpr, indent: int = 0): string =
   of CekArrowMemberAccess:
     let arrowMemberAccess = node.arrowMemberAccessNode
     result = indentStr & cExprToString(arrowMemberAccess.expr, 0) & "->" & arrowMemberAccess.member
+  of CekArrayLiteral:
+    let arrayLiteral = node.arrayLiteralNode
+    result = indentStr & "{"
+    for i, elem in arrayLiteral.elements:
+      if i > 0:
+        result.add(", ")
+      result.add(cExprToString(elem, 0))
+    result.add("}")
   of CekNullLiteral:
     result = indentStr & "NULL"

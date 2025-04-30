@@ -17,6 +17,7 @@
 - [x] **Type System Improvements**
   - [x] Enhance type inference to resolve metatypes properly (add additional pass)
   - [x] Fix type resolution for variables that end with metatypes
+  - [ ] Implement Function Pointer Types
 
 - [x] **AST Construction**
   - [x] Add helper function to create AST variants to avoid uninitialized members
@@ -29,12 +30,12 @@
 - [ ] **Core Language Features**
   - [x] Implement structs
   - [x] Add support for pointers
-  - [ ] Introduce arrays
+  - [x] Introduce arrays
   - [ ] Implement control flow statements
     - [x] If/else conditionals
     - [x] While loops
     - [ ] For loops
-  - [ ] Design and implement generics via type erasure
+  - [ ] Design and implement generics
   - [x] Reconsider function calling conventions
   - [x] Add optional parameters
   - [ ] Add implicit return variable

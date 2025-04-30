@@ -79,12 +79,15 @@ UnaryExpr      ::= ("-" | "!" | "&" | "*" ) UnaryExpr
 MemberExpr     ::= PrimaryExpr
                  | MemberExpr "." Identifier
                  | MemberExpr "(" Arguments ")"
+                 | MemberExpr "[" Expression "]"
+                 | MemberExpr "[" ( Expression )? ":" ( Expression )? "]"
 
 # Highest precedence
 PrimaryExpr    ::= Identifier
                  | Literal
                  | GroupExpr
                  | StructLiteral
+                 | ArrayLiteral
 
 GroupExpr      ::= "(" Expression ")"
 
@@ -92,6 +95,8 @@ StructLiteral  ::= Identifier "{" StructLiteralMembers "}"
 
 StructLiteralMembers ::= (StructLiteralMember ("," StructLiteralMember)*)?
 StructLiteralMember  ::= Identifier ":" Expression
+
+ArrayLiteral   ::= "[" ( Expression ("," Expression)* )? "]"
 
 Arguments      ::= (Expression ("," Expression)*)?
 ```
@@ -126,12 +131,16 @@ BoolLiteral    ::= "true" | "false"
 
 ```bnf
 Type           ::= PointerType
+                 | ArrayType
+                 | SliceType
                  | PrimitiveType
                  | Identifier  # User-defined type
 
 PointerType    ::= [ReadOnly] "*" Type
 
 ReadOnly       ::= "ro"   # read-only, only for pointers
+ArrayType      ::= "[" Type "," IntLiteral "]"  # Fixed-size array
+SliceType      ::= "[" Type "]"  # Slice type (array with length)
 
 PrimitiveType  ::= "Int" | "Int8" | "Int16" | "Int32" | "Int64" | "Int128"
                  | "UInt" | "UInt8" | "UInt16" | "UInt32" | "UInt64"

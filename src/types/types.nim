@@ -7,6 +7,7 @@ type
     TkROPointer
     TkMeta
     TkStruct
+    TkArray
 
   Primitive* = enum
     Int
@@ -52,6 +53,10 @@ type
     name*: string
     members*: Table[string, StructMember]
 
+  ArrayType* = object
+    typ*: Type
+    size*: int
+
   Type* = ref object
     hasAddress*: bool = false # when type is from a variable
     fromRO*: bool = false # when type is from a ro variable
@@ -68,6 +73,8 @@ type
         name*: string
     of TkStruct:
       structType*: StructType
+    of TkArray:
+      arrayType*: ArrayType
 
 proc newPointerType*(t: Type, isConst: bool): Type =
   ## Creates a new pointer type
@@ -75,6 +82,10 @@ proc newPointerType*(t: Type, isConst: bool): Type =
     result = Type(kind: TkROPointer, pointerTo: t)
   else:
     result = Type(kind: TkPointer, pointerTo: t)
+
+proc newArrayType*(t: Type, size: int): Type =
+  ## Creates a new array type
+  result = Type(kind: TkArray, arrayType: ArrayType(typ: t, size: size))
 
 proc `==`*(a, b: Type): bool =
   ## Compares two Type objects for equality
@@ -103,6 +114,10 @@ proc `==`*(a, b: Type): bool =
       # this is enough to distinguish structs since name is the canonical name and is unique
       return false
     result = true
+  of TkArray:
+    if a.arrayType.size != b.arrayType.size:
+      return false
+    result = a.arrayType.typ == b.arrayType.typ
 
 proc `$`*(t: Type): string =
   ## Returns a string representation of a Type
@@ -141,6 +156,8 @@ proc `$`*(t: Type): string =
       result = "AnyPointer"
   of TkStruct:
     result = "struct " & t.structType.name
+  of TkArray:
+    result = "array[" & $t.arrayType.typ & ", " & $t.arrayType.size & "]"
 
 import std/strutils
 
@@ -182,3 +199,7 @@ proc asTree*(t: Type, indent: int = 0): string =
       result.add "\n" & indentStr & "  AnyPointer\n"
   of TkStruct:
     result.add indentStr & "Struct: " & t.structType.name & "\n"
+  of TkArray:
+    result.add indentStr & "Array:\n"
+    result.add indentStr & "  Type: " & $t.arrayType.typ & "\n"
+    result.add indentStr & "  Size: " & $t.arrayType.size & "\n"

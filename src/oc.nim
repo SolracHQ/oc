@@ -24,12 +24,12 @@ proc printHelp() =
   echo "  compile     Transpile and compile OverC source file (default)"
   echo "  run         Compile and run OverC source file"
   echo "Options:"
-  echo "  --compiler=<c-compiler>   Set C compiler (default: gcc)"
+  echo "  --compiler=<c-compiler>   Set C compiler (default: [clang, gcc])"
   echo "  --cflags='<flags>'        Set C compiler flags (default: '')"
-  echo "  --debug                  Build with debug flags (-O0)"
-  echo "  --release                Build with release flags (-O3)"
-  echo "  --static                 Statically link executable"
-  echo "  -h, --help               Show this help message"
+  echo "  --debug                   Build with debug flags (-O0)"
+  echo "  --release                 Build with release flags (-O3)"
+  echo "  --static                  Statically link executable"
+  echo "  -h, --help                Show this help message"
 
 proc parseCliOptions(): CliOptions =
   result.compiler = ""

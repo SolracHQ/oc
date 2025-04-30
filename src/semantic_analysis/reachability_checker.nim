@@ -81,6 +81,14 @@ proc analyzeReachability(checker: ReachabilityChecker, scope: Scope, expr: Expr)
     # Check reachability of each member value in struct literal
     for member in expr.structLiteralExpr.members:
       analyzeReachability(checker, scope, member.value)
+  of EkArrayAccess:
+    # Check reachability of array and index expressions
+    analyzeReachability(checker, scope, expr.arrayAccessExpr.arrayExpr)
+    analyzeReachability(checker, scope, expr.arrayAccessExpr.indexExpr)
+  of EkArrayLiteral:
+    # Check reachability of each element in array literal
+    for element in expr.arrayLiteralExpr.elements:
+      analyzeReachability(checker, scope, element)
   # Literals and type nodes don't involve variables
   of EkIntLiteral, EkUIntLiteral, EkFloatLiteral, EkStringLiteral, EkCStringLiteral,
       EkCharLiteral, EkBoolLiteral, EkNilLiteral:

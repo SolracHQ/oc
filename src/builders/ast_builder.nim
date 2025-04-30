@@ -109,6 +109,16 @@ proc newStructLiteralMember*(
   ## Creates a struct literal member
   StructLiteralMember(name: name, namePos: namePos, value: value)
 
+proc newArrayAccessExpr*(arrayExpr: Expr, indexExpr: Expr, position: Position): Expr =
+  ## Creates an array access expression
+  result = Expr(kind: EkArrayAccess, pos: position)
+  result.arrayAccessExpr = ArrayAccessExpr(arrayExpr: arrayExpr, indexExpr: indexExpr)
+
+proc newArrayLiteralExpr*(elements: seq[Expr], position: Position): Expr =
+  ## Creates an array literal expression
+  result = Expr(kind: EkArrayLiteral, pos: position)
+  result.arrayLiteralExpr = ArrayLiteralExpr(elements: elements)
+
 # --- Statement Constructors ---
 
 proc newVarDeclStmt*(

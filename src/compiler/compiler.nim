@@ -32,6 +32,7 @@ proc compile*(file: file_info.FileInfo, compiler: string, cflags: string = ""): 
   let cmd = compiler & " " & cflags & " -o '" & outFile & "' '" & cFile & "'"
   echo "[oc] $ ", cmd
   let (output, exitCode) = execCmdEx(cmd)
+  echo output
   if exitCode != 0:
     echo output
     echo "Error: Compilation failed."

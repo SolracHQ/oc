@@ -1,4 +1,5 @@
 import ../types/[position, scope, ast, types, token]
+import ../parser/tree
 import ../reporter
 import std/options
 import std/tables
@@ -39,9 +40,20 @@ proc areTypesCompatible(
     return true
 
   # Special case: nil is compatible with pointer types
-  if actual.kind == TkMeta and actual.metaKind == MkAnyPointer:
+  if actual.kind == TkMeta and actual.metaKind == MkAnyPointer and (expected.kind == TkPointer or expected.kind == TkROPointer):
     # For now, just return true for any nil assignment (to be refined)
     return true
+
+  if expected.kind == TkArray and actual.kind == TkArray:
+    # Check array types
+    if expected.arrayType.size != actual.arrayType.size:
+      checker.typeCheckError(
+        pos, "Array size mismatch", "expected size " & $(expected.arrayType.size) &
+          ", got " & $(actual.arrayType.size)
+      )
+    return areTypesCompatible(
+      checker, scope, expected.arrayType.typ, actual.arrayType.typ, pos
+    )
 
   if actual.kind == TkMeta and actual.metaKind == MkAnyInt and isIntFamily(expected):
     # Allow int inference for int family types
@@ -313,6 +325,77 @@ proc analyzeTypeCheckingExpr(checker: TypeChecker, scope: Scope, expr: Expr) =
             checker.typeCheckError(
               expr.pos, "Missing member '" & m.name & "' in struct literal", ""
             )
+  of EkArrayAccess:
+    let arrExpr = expr.arrayAccessExpr.arrayExpr
+    let idxExpr = expr.arrayAccessExpr.indexExpr
+    let arrType = arrExpr.exprType
+    let idxType = idxExpr.exprType
+
+    # Check array type: must be array, pointer, or CString
+    let isArray = arrType.kind == TkArray
+    let isPointer = arrType.kind == TkPointer or arrType.kind == TkROPointer
+    let isCString = arrType.kind == TkPrimitive and arrType.primitive == CString
+    if not (isArray or isPointer or isCString):
+      checker.typeCheckError(
+        arrExpr.pos,
+        "Array access requires array, pointer, or CString type",
+        "but got " & $arrType,
+      )
+    # Check index type: any int or uint family
+    if not (isIntFamily(idxType) or isUIntFamily(idxType)):
+      checker.typeCheckError(
+        idxExpr.pos,
+        "Array index must be an integer type",
+        "but got " & $idxType,
+      )
+    analyzeTypeCheckingExpr(checker, scope, arrExpr)
+    analyzeTypeCheckingExpr(checker, scope, idxExpr)
+  of EkArrayLiteral:
+    let arrLit = expr.arrayLiteralExpr
+    let elements = arrLit.elements
+    let arrType = expr.exprType
+    if arrType.isNil:
+      # Try to infer type from elements
+      var inferredType: Type = nil
+      for el in elements:
+        let elType = el.exprType
+        if inferredType.isNil:
+          # Find first non-meta type
+          if elType.kind != TkMeta:
+            inferredType = elType
+        analyzeTypeCheckingExpr(checker, scope, el)
+      if not inferredType.isNil:
+        # Check all elements are compatible with inferredType
+        for el in elements:
+          let elType = el.exprType
+          if elType.kind == TkMeta:
+            # Accept meta types if they match the family
+            if isIntFamily(inferredType) and elType.metaKind == MkAnyInt:
+              continue
+            if isUIntFamily(inferredType) and elType.metaKind == MkAnyUInt:
+              continue
+            if isFloatFamily(inferredType) and elType.metaKind == MkAnyFloat:
+              continue
+            if inferredType.kind == TkPointer and elType.metaKind == MkAnyPointer:
+              continue
+            # Otherwise, error
+            checker.typeCheckError(
+              el.pos,
+              "Array literal element type mismatch",
+              "expected " & $inferredType & ", got " & $elType,
+            )
+          elif not areTypesCompatible(checker, scope, inferredType, elType, el.pos):
+            discard
+      # else: all elements are meta or empty, nothing to check
+    else:
+      # Array type is known, check all elements
+      let elemType =
+        if arrType.kind == TkArray: arrType.arrayType.typ
+        else: arrType # fallback
+      for el in elements:
+        let elType = el.exprType
+        discard areTypesCompatible(checker, scope, elemType, elType, el.pos)
+        analyzeTypeCheckingExpr(checker, scope, el)
   # Leaf nodes
   of EkIdentifier, EkIntLiteral, EkUIntLiteral, EkFloatLiteral, EkStringLiteral,
       EkCStringLiteral, EkCharLiteral, EkBoolLiteral, EkNilLiteral:

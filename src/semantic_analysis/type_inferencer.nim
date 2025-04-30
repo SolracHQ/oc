@@ -249,6 +249,14 @@ proc analyzeTypeInference*(inferencer: TypeInferencer, scope: Scope, expr: Expr)
     # Analyze all member expressions
     for member in expr.structLiteralExpr.members:
       analyzeTypeInference(inferencer, scope, member.value)
+  of EkArrayAccess:
+    # Analyze array and index expressions
+    analyzeTypeInference(inferencer, scope, expr.arrayAccessExpr.arrayExpr)
+    analyzeTypeInference(inferencer, scope, expr.arrayAccessExpr.indexExpr)
+  of EkArrayLiteral:
+    # Analyze all elements in the array literal
+    for element in expr.arrayLiteralExpr.elements:
+      analyzeTypeInference(inferencer, scope, element)
   # Literals and identifiers do not need further analysis
   of EkIntLiteral, EkUIntLiteral, EkFloatLiteral, EkStringLiteral, EkCStringLiteral,
       EkCharLiteral, EkBoolLiteral, EkNilLiteral:

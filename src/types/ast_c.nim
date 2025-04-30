@@ -43,6 +43,7 @@ type
     CekStructLiteral
     CekMemberAccess
     CekArrowMemberAccess
+    CekArrayLiteral
 
   # Program structure
   TranslationUnitNode* = object
@@ -170,6 +171,10 @@ type
     typeName*: string
     members*: seq[StructLiteralMemberNode]
 
+  # Array literal
+  ArrayLiteralNode* = object
+    elements*: seq[CExpr]
+
   # Member access
   MemberAccessNode* = object
     expr*: CExpr
@@ -242,4 +247,5 @@ type
     of CekStructLiteral: structLiteralNode*: StructLiteralNode
     of CekMemberAccess: memberAccessNode*: MemberAccessNode
     of CekArrowMemberAccess: arrowMemberAccessNode*: ArrowMemberAccessNode
+    of CekArrayLiteral: arrayLiteralNode*: ArrayLiteralNode
     of CekNullLiteral: discard

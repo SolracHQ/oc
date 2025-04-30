@@ -130,6 +130,21 @@ proc parseStructLiteral(parser: var Parser): Expr =
   discard parser.consume({TKRBrace}, "Expect '}' after struct literal")
   return newStructLiteralExpr(typeName, members, typeToken.pos)
 
+proc parseArrayLiteral(parser: var Parser): Expr =
+  ## Parse an array literal: [ expr1, expr2, ... ]
+  let token = parser.peek(-1).get() # Already matched '['
+  var elements: seq[Expr] = @[]
+  parser.cleanUpNewLines()
+  if not parser.check({TKRBracket}):
+    while true:
+      elements.add(parser.parseExpression())
+      parser.cleanUpNewLines()
+      if not parser.match({TKComma}):
+        break
+      parser.cleanUpNewLines()
+  discard parser.consume({TKRBracket}, "Expect ']' after array literal")
+  return newArrayLiteralExpr(elements, token.pos)
+
 proc parsePrimary(parser: var Parser): Expr =
   ## Parse a primary expression
   if parser.isAtEnd():
@@ -140,6 +155,8 @@ proc parsePrimary(parser: var Parser): Expr =
     if parser.check({TKLBrace}):
       return parser.parseStructLiteral()
     return newIdentifierExpr(token.lexeme, token.pos)
+  elif parser.match({TkLBracket}):
+    return parser.parseArrayLiteral()
   elif parser.match({TKIntLit}):
     let token = parser.peek(-1).get()
     return newLiteralExpr(token.intValue, token.pos)
@@ -197,7 +214,7 @@ proc parseFunctionArguments(parser: var Parser): seq[Expr] =
   return result
 
 proc parseMemberAccess(parser: var Parser): Expr =
-  ## Parse member access (e.g., obj.member) and function calls (e.g., function()) and function pointer calls (e.g., obj.fun())
+  ## Parse member access (e.g., obj.member) and function calls (e.g., function()) and function pointer calls (e.g., obj.fun()) and array access (e.g., arr[0])
   var expr = parser.parsePrimary()
   while true:
     if parser.match({TKDot}):
@@ -210,6 +227,11 @@ proc parseMemberAccess(parser: var Parser): Expr =
       let args = parser.parseFunctionArguments()
       discard parser.consume({TKRParen}, "Expect ')' after function arguments")
       expr = newFunctionCallExpr(expr, args, lparenToken.pos)
+    elif parser.match({TKLBracket}):
+      let lbracketToken = parser.peek(-1).get()
+      let indexExpr = parser.parseExpression()
+      discard parser.consume({TKRBracket}, "Expect ']' after array index")
+      expr = newArrayAccessExpr(expr, indexExpr, lbracketToken.pos)
     else:
       break
   return expr
@@ -314,6 +336,15 @@ proc parseType(parser: var Parser): Type =
     result = newPointerType(parser.parseType(), false)
   elif parser.match({TokenKind.TkROPointer}):
     result = newPointerType(parser.parseType(), true)
+  elif parser.match({TKLBracket}):
+    let token = parser.peek(-1).get()
+    let innerType = parser.parseType()
+    discard parser.consume({TKComma}, "Expect ',' after type in array.")
+    let sizeExpr = parser.parseExpression()
+    discard parser.consume({TKRBracket}, "Expect ']' after array type.")
+    if sizeExpr.kind != EkIntLiteral:
+      parser.parserError("Array size must be a literal.")
+    result = newArrayType(innerType, sizeExpr.intLiteralExpr.value)
   else:
     echo parser.peek().get().kind
     parser.parserError("Expect type.")

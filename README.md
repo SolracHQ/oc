@@ -4,15 +4,31 @@ OverC is a personal hobby project aimed at creating a unique programming languag
 
 ## Current Status
 
-OverC is under **heavy development** and is not yet capable of compiling any programs. Here's a summary of the current progress:
+OverC is under **active development**. The following features are implemented and working:
 
 - **Lexer**: ✅ Complete for the base syntax.
 - **Parser**: ✅ Complete for the base syntax.
 - **Semantic Analysis**: ✅ Complete for the base syntax.
 - **Code Generation**: ✅ Functional.
-- **Generics**: 🚧 Not implemented yet.
-- **Tagged Unions**: 🚧 Not implemented yet.
-- **Structs**: 🚧 Not implemented yet.
+- **Structs**: ✅ Implemented and working.
+- **Pointers**: ✅ Supported.
+- **Arrays**: ✅ Supported.
+- **Control Flow**: ✅ If/else, while loops.
+- **Function Calls**: ✅ Supported.
+
+The following features are **not yet implemented**:
+
+- **Generics**: 🚧 Not implemented.
+- **Tagged Unions**: 🚧 Not implemented.
+- **Enums**: 🚧 Not implemented.
+
+### Example Programs
+
+The following example programs compile and run successfully with OverC:
+
+- [`test.oc`](./test.oc)
+- [`examples/linked_list.oc`](./examples/linked_list.oc)
+- [`examples/arrays.oc`](./examples/arrays.oc)
 
 ## Usage
 
@@ -59,9 +75,13 @@ OverC supports various options to customize compilation:
 
 OverC is not designed to compete with C or other programming languages. Its purpose is to be a personal language that includes features I find interesting, such as:
 
+- **Structs** (implemented)
+- **Pointers** (implemented)
+- **Arrays** (implemented)
 - **Generics** (planned)
 - **Tagged Unions** (planned)
 - **Pattern Matching** (planned)
+- **Enums** (planned)
 
 ## Why OverC?
 
@@ -69,8 +89,10 @@ The name "OverC" reflects its relationship with C—it builds on C as a foundati
 
 ## Roadmap
 
+See [TODO.md](./TODO.md) for a detailed roadmap and ongoing tasks.
+
 1. Complete the **type system improvements** to enhance type inference and resolution.
-2. Implement **structs**, **generics**, and **tagged unions**.
+2. Implement **generics**, **tagged unions**, and **enums**.
 3. Achieve **self-hosting** by writing OverC in OverC.
 
 ## Transpiler Phases

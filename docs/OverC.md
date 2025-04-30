@@ -43,6 +43,7 @@ OverC supports the following primitive types:
 | `Char` | Character type |
 | `String` | String type (OverC native) |
 | `CString` | C-compatible string type |
+| `[Type, N]` | Fixed-size array type |
 | `[Type]` | Slice type (array with length) |
 | `*Type` | Pointer type |
 | `CVarArgs` | Variable arguments for C functions |
